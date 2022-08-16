@@ -62,5 +62,14 @@ python pose-estimate.py --source "your custom video.mp4"
 
 #### References
 - https://github.com/WongKinYiu/yolov7
+- https://github.com/augmentedstartups/yolov7
+- https://github.com/augmentedstartups
 - https://learnopencv.com/yolov7-object-detection-paper-explanation-and-inference/
 - https://github.com/ultralytics/yolov5
+
+#### My Medium Articles
+- https://medium.com/augmented-startups/yolov7-training-on-custom-data-b86d23e6623
+- https://medium.com/augmented-startups/roadmap-for-computer-vision-engineer-45167b94518c
+- https://medium.com/augmented-startups/yolor-or-yolov5-which-one-is-better-2f844d35e1a1
+- https://medium.com/augmented-startups/train-yolor-on-custom-data-f129391bd3d6
+- https://medium.com/augmented-startups/develop-an-analytics-dashboard-using-streamlit-e6282fa5e0f
