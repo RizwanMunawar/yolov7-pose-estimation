@@ -50,8 +50,9 @@ python pose-estimate.py --source "your custom video.mp4"
 
 - Output file will be created in the working directory with name ["your-file-name-without-extension"+"__keypoint.mp4"]
 
+![Poseestimation](https://user-images.githubusercontent.com/62513924/184828485-ec0dbb52-6e20-47f1-94ec-03fd1c6cb5fb.png)
 
-https://user-images.githubusercontent.com/62513924/184828185-c8b486ac-656e-4929-95bb-f25404cc4e5b.mp4
+
 
 
 #### RESULTS
