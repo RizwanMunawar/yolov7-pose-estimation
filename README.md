@@ -48,6 +48,12 @@ python pose-estimate.py
 #if you want to change source file
 python pose-estimate.py --source "your custom video.mp4"
 
+#For CPU
+python pose-estimate.py --source "your custom video.mp4" --device cpu
+
+#For GPU
+python pose-estimate.py --source "your custom video.mp4" --device 0
+
 ```
 
 - Output file will be created in the working directory with name ["your-file-name-without-extension"+"__keypoint.mp4"]
