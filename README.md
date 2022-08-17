@@ -60,11 +60,16 @@ python pose-estimate.py --source "your custom video.mp4" --device 0
 
 #### RESULTS
 
-<center><p>
-  <img src="https://user-images.githubusercontent.com/62513924/185089411-3f9ae391-ec23-4ca2-aba0-abf3c9991050.png" width="416" />
-  <img src="https://user-images.githubusercontent.com/62513924/185228806-4ba62e7a-12ef-4965-a44a-6b5ba9a3bf28.png" width="450" /> 
-</p></center>
-
+<table>
+  <tr>
+    <td>Football Match Pose-Estimation</td>
+     <td>Cricket Match Pose-Estimation</td>
+  </tr>
+  <tr>
+    <td><img src="https://user-images.githubusercontent.com/62513924/185089411-3f9ae391-ec23-4ca2-aba0-abf3c9991050.png" width=640 height=360></td>
+    <td><img src="https://user-images.githubusercontent.com/62513924/185228806-4ba62e7a-12ef-4965-a44a-6b5ba9a3bf28.png" width=640 height=360></td>
+  </tr>
+ </table>
 
 #### References
 - https://github.com/WongKinYiu/yolov7
