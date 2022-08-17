@@ -13,7 +13,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 @torch.no_grad()
 def run(
-        poseweights='yolov5s.pt',
+        poseweights='yolov7-w6-pose.pt',
         source='football1.mp4'):
 
 
