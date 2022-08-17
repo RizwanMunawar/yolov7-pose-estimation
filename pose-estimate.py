@@ -1,26 +1,27 @@
-import matplotlib.pyplot as plt
-import torch
 import cv2
-import numpy as np
 import time
+import torch
 import argparse
+import numpy as np
 from torchvision import transforms
 from utils.datasets import letterbox
-from utils.general import non_max_suppression_kpt
+from utils.torch_utils import select_device
+from models.experimental import attempt_load
 from utils.plots import output_to_keypoint, plot_skeleton_kpts
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
+from utils.general import non_max_suppression_kpt, strip_optimizer
 
 @torch.no_grad()
 def run(
         poseweights='yolov7-w6-pose.pt',
-        source='football1.mp4'):
+        source='football1.mp4',
+        device='cpu'):
 
-
-    #load weights
-    weights = torch.load(poseweights)
-    model = weights['model']
-    model = model.half().to(device)
+    #select device
+    device = select_device(opt.device)
+    half = device.type != 'cpu'
+    
+    # Load model
+    model = attempt_load(poseweights, map_location=device)  # load FP32 model
     _ = model.eval()
 
     #video path
@@ -56,24 +57,32 @@ def run(
     while(cap.isOpened):
         
         print("Frame {} Processing".format(frame_count))
+        
         #get frame and success from video capture
         ret, frame = cap.read()
-
         #if success is true, means frame exist
         if ret:
-
+            
             #store frame
             orig_image = frame
-            
+
             #convert frame to RGB
             image = cv2.cvtColor(orig_image, cv2.COLOR_BGR2RGB)
             image = letterbox(image, (frame_width), stride=64, auto=True)[0]
             image_ = image.copy()
             image = transforms.ToTensor()(image)
             image = torch.tensor(np.array([image.numpy()]))
+            
+            #convert image data to device
             image = image.to(device)
-            image = image.half()
+            
+            #convert image to float precision (cpu)
+            image = image.float()
+            
+            #start time for fps calculation
             start_time = time.time()
+            
+            #get predictions
             with torch.no_grad():
                 output, _ = model(image)
 
@@ -111,6 +120,7 @@ def run(
             break
 
     cap.release()
+    
     # cv2.destroyAllWindows()
     avg_fps = total_fps / frame_count
     print(f"Average FPS: {avg_fps:.3f}")
@@ -119,7 +129,8 @@ def run(
 def parse_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument('--poseweights', nargs='+', type=str, default='yolov7-w6-pose.pt', help='model path(s)')
-    parser.add_argument('--source', type=str, default='football1.mp4', help='Video/0 for webcam')
+    parser.add_argument('--source', type=str, default='football1.mp4', help='video/0 for webcam')
+    parser.add_argument('--device', type=str, default='cpu', help='cpu/0,1,2,3(gpu)')   #device arugments
     opt = parser.parse_args()
     return opt
 
@@ -128,4 +139,5 @@ def main(opt):
 
 if __name__ == "__main__":
     opt = parse_opt()
+    strip_optimizer(opt.device,opt.poseweights)
     main(opt)
