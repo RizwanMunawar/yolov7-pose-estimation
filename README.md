@@ -53,18 +53,15 @@ python pose-estimate.py --source "your custom video.mp4" --device "cpu"
 
 #Use GPU
 python pose-estimate.py --source "your custom video.mp4" --device 0
-
-
 ```
 
 - Output file will be created in the working directory with name ["your-file-name-without-extension"+"__keypoint.mp4"]
 
-![Poseestimation](https://user-images.githubusercontent.com/62513924/184828485-ec0dbb52-6e20-47f1-94ec-03fd1c6cb5fb.png)
-
-
-
-
 #### RESULTS
+![pose-estimation](https://user-images.githubusercontent.com/62513924/185089411-3f9ae391-ec23-4ca2-aba0-abf3c9991050.png)
+
+
+
 
 
 
