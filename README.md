@@ -4,7 +4,7 @@
 - Added Support for Comparision of (FPS & Time) Graph
 - How to run Code in Google Colab
 
-#### Steps to run Code
+### Steps to run Code
 - If you are using google colab then you will first need to mount the drive with mentioned command first, <b>(Windows or Linux users)</b> both can skip this step.
 ```
 from google.colab import drive
