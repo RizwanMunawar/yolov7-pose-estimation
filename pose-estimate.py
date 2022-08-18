@@ -3,6 +3,7 @@ import time
 import torch
 import argparse
 import numpy as np
+import matplotlib.pyplot as plt
 from torchvision import transforms
 from utils.datasets import letterbox
 from utils.torch_utils import select_device
@@ -15,7 +16,12 @@ def run(
         poseweights='yolov7-w6-pose.pt',
         source='football1.mp4',
         device='cpu'):
-
+    
+    #list to store time
+    time_list = []
+    #list to store fps
+    fps_list = []
+    
     #select device
     device = select_device(opt.device)
     half = device.type != 'cpu'
@@ -108,7 +114,14 @@ def run(
             fps = 1 / (end_time - start_time)
             total_fps += fps
             frame_count += 1
-
+            
+            #append FPS in list
+            fps_list.append(total_fps)
+            
+            #append time in list
+            time_list.append(end_time - start_time)
+            
+            #add FPS on top of video
             cv2.putText(im0, f'FPS: {int(fps)}', (11, 100), 0, 1, [255, 0, 0], thickness=2, lineType=cv2.LINE_AA)
             
             # cv2.imshow('image', nimg)
@@ -120,10 +133,12 @@ def run(
             break
 
     cap.release()
-    
     # cv2.destroyAllWindows()
     avg_fps = total_fps / frame_count
     print(f"Average FPS: {avg_fps:.3f}")
+    
+    #plot the comparision graph
+    plot_fps_time_comparision(time_list=time_list,fps_list=fps_list)
 
 
 def parse_opt():
@@ -134,6 +149,17 @@ def parse_opt():
     opt = parser.parse_args()
     return opt
 
+#function for plot fps and time comparision graph
+def plot_fps_time_comparision(time_list,fps_list):
+    plt.figure()
+    plt.xlabel('Time (s)')
+    plt.ylabel('FPS')
+    plt.title('FPS and Time Comparision Graph')
+    plt.plot(time_list, fps_list,'b',label="FPS & Time")
+    plt.savefig("FPS_and_Time_Comparision_pose_estimate.png")
+    
+
+#main function
 def main(opt):
     run(**vars(opt))
 
