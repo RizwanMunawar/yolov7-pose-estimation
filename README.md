@@ -66,8 +66,8 @@ python pose-estimate.py --source "your custom video.mp4" --device cpu
 #For GPU
 python pose-estimate.py --source "your custom video.mp4" --device 0
 
-#For LiveStream
-python pose-estimate.py --source "your IP Camera Stream URL" --device 0   #Ip Stream URL Format i.e ("rtsp://username:pass@ipaddress:portno/video/video.amp")
+#For LiveStream (Ip Stream URL Format i.e "rtsp://username:pass@ipaddress:portno/video/video.amp")
+python pose-estimate.py --source "your IP Camera Stream URL" --device 0
 
 #For WebCam
 python pose-estimate.py --source 0
