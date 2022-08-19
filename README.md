@@ -66,6 +66,12 @@ python pose-estimate.py --source "your custom video.mp4" --device cpu
 #For GPU
 python pose-estimate.py --source "your custom video.mp4" --device 0
 
+#For WebCam with CPU
+python pose-estimate.py --source 0 --device cpu 
+
+
+#For WebCam with GPU
+python pose-estimate.py --source 0 --device 0 
 ```
 
 - Output file will be created in the working directory with name <b>["your-file-name-without-extension"+"_keypoint.mp4"]</b>
