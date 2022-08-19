@@ -124,7 +124,7 @@ def run(
             #add FPS on top of video
             cv2.putText(im0, f'FPS: {int(fps)}', (11, 100), 0, 1, [255, 0, 0], thickness=2, lineType=cv2.LINE_AA)
             
-            # cv2.imshow('image', nimg)
+            # cv2.imshow('image', im0)
             out.write(im0)
 
             # if cv2.waitKey(1) & 0xFF == ord('q'):
