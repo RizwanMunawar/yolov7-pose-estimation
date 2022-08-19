@@ -4,7 +4,7 @@
 - Added Support for Comparision of (FPS & Time) Graph
 - How to run Code in Google Colab
 - Code can run on Both (CPU & GPU)
-
+- Video/WebCam/External Camera/IP Stream Supported
 ### Coming Soon
 - Development of streamlit dashboard for Pose-Estimation
 
