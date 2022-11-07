@@ -145,7 +145,7 @@ def run(
 
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--poseweights', nargs='+', type=str, default='../../yolov7-w6-pose.pt', help='model path(s)')
+    parser.add_argument('--poseweights', nargs='+', type=str, default='yolov7-w6-pose.pt', help='model path(s)')
     parser.add_argument('--source', type=str, default='football1.mp4', help='video/0 for webcam')
     parser.add_argument('--device', type=str, default='cpu', help='cpu/0,1,2,3(gpu)')   #device arugments
     opt = parser.parse_args()
