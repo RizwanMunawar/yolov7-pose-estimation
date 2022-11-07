@@ -34,8 +34,10 @@ def run(
     video_path = source
 
     #pass video to videocapture object
-    cap = cv2.VideoCapture(video_path)
-
+    if video_path.isnumeric() :
+        cap = cv2.VideoCapture(int(video_path))
+    else :
+        cap = cv2.VideoCapture(video_path)
     #check if videocapture not opened
     if (cap.isOpened() == False):
         print('Error while trying to read video. Please check path again')
