@@ -66,14 +66,17 @@ python pose-estimate.py --source "your custom video.mp4" --device cpu
 #For GPU
 python pose-estimate.py --source "your custom video.mp4" --device 0
 
+#For View-Image
+python pose-estimate.py --source "your custom video.mp4" --device 0 --view-img
+
 #For LiveStream (Ip Stream URL Format i.e "rtsp://username:pass@ipaddress:portno/video/video.amp")
-python pose-estimate.py --source "your IP Camera Stream URL" --device 0
+python pose-estimate.py --source "your IP Camera Stream URL" --device 0 --view-img
 
 #For WebCam
-python pose-estimate.py --source 0
+python pose-estimate.py --source 0 --view-img
 
 #For External Camera
-python pose-estimate.py --source 1
+python pose-estimate.py --source 1 --view-img
 ```
 
 - Output file will be created in the working directory with name <b>["your-file-name-without-extension"+"_keypoint.mp4"]</b>
