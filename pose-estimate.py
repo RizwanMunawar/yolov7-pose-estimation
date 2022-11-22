@@ -13,7 +13,7 @@ from utils.plots import output_to_keypoint, plot_skeleton_kpts,colors,plot_one_b
 
 @torch.no_grad()
 def run(poseweights="yolov7-w6-pose.pt",source="football1.mp4",device='cpu',view_img=False,
-        save_txt=False,save_conf=False,line_thickness = 3,hide_labels=False, hide_conf=True):
+        save_conf=False,line_thickness = 3,hide_labels=False, hide_conf=True):
 
     frame_count = 0  #count no of frames
     total_fps = 0  #count total fps
@@ -92,20 +92,12 @@ def run(poseweights="yolov7-w6-pose.pt",source="football1.mp4",device='cpu',view
                             print("No of Objects in Current Frame : {}".format(n))
                         
                         for det_index, (*xyxy, conf, cls) in enumerate(reversed(pose[:,:6])): #loop over poses for drawing on frame
-                            if save_txt:  # Write to file
-                                xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
-                                line = (cls, *xywh, conf) if opt.save_conf else (cls, *xywh)  # label format
-                                with open(txt_path + '.txt', 'a') as f:
-                                    f.write(('%g ' * len(line)).rstrip() % line + '\n')
-                            
-                            if view_img:  # Add bbox to image
-                                c = int(cls)  # integer class
-                                print(c)
-                                kpts = pose[det_index, 6:]
-                                label = None if opt.hide_labels else (names[c] if opt.hide_conf else f'{names[c]} {conf:.2f}')
-                                plot_one_box_kpt(xyxy, im0, label=label, color=colors(c, True), 
-                                            line_thickness=opt.line_thickness,kpt_label=True, kpts=kpts, steps=3, 
-                                            orig_shape=im0.shape[:2])
+                            c = int(cls)  # integer class
+                            kpts = pose[det_index, 6:]
+                            label = None if opt.hide_labels else (names[c] if opt.hide_conf else f'{names[c]} {conf:.2f}')
+                            plot_one_box_kpt(xyxy, im0, label=label, color=colors(c, True), 
+                                        line_thickness=opt.line_thickness,kpt_label=True, kpts=kpts, steps=3, 
+                                        orig_shape=im0.shape[:2])
 
                 
                 end_time = time.time()  #Calculatio for FPS
@@ -138,7 +130,6 @@ def parse_opt():
     parser.add_argument('--source', type=str, default='football1.mp4', help='video/0 for webcam') #video source
     parser.add_argument('--device', type=str, default='cpu', help='cpu/0,1,2,3(gpu)')   #device arugments
     parser.add_argument('--view-img', action='store_true', help='display results')  #display results
-    parser.add_argument('--save-txt', action='store_true', help='save results to *.txt') #store poses data
     parser.add_argument('--save-conf', action='store_true', help='save confidences in --save-txt labels') #save confidence in txt writing
     parser.add_argument('--line-thickness', default=3, type=int, help='bounding box thickness (pixels)') #box linethickness
     parser.add_argument('--hide-labels', default=False, action='store_true', help='hide labels') #box hidelabel
