@@ -115,6 +115,9 @@ def run(poseweights="yolov7-w6-pose.pt",source="football1.mp4",device='cpu',view
 
                 out.write(im0)  #writing the video frame
 
+            else:
+                break
+
         cap.release()
         # cv2.destroyAllWindows()
         avg_fps = total_fps / frame_count
