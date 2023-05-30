@@ -1,0 +1,6 @@
+.idea
+venv
+**.DS_Store
+
+# Model file is too big for GitHub
+yolov7-w6-pose.pt
