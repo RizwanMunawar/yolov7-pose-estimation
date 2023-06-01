@@ -13,7 +13,7 @@ from utils.plots import output_to_keypoint, plot_skeleton_kpts, colors, plot_one
 
 
 @torch.no_grad()
-def run(pose_weights="yolov7-w6-pose.pt", source="football1.mp4", device='cpu', view_img=False,
+def run(poseweights="yolov7-w6-pose.pt", source="football1.mp4", device='cpu', view_img=False,
         save_conf=False, line_thickness=3, hide_labels=False, hide_conf=True):
     frame_count = 0  # count no of frames
     total_fps = 0  # count total fps
@@ -23,7 +23,7 @@ def run(pose_weights="yolov7-w6-pose.pt", source="football1.mp4", device='cpu', 
     device = select_device(opt.device)  # select device
     half = device.type != 'cpu'
 
-    model = attempt_load(pose_weights, map_location=device)  # Load model
+    model = attempt_load(poseweights, map_location=device)  # Load model
     _ = model.eval()
     names = model.module.names if hasattr(model, 'module') else model.names  # get class names
 
@@ -44,7 +44,7 @@ def run(pose_weights="yolov7-w6-pose.pt", source="football1.mp4", device='cpu', 
         vid_write_image = letterbox(cap.read()[1], frame_width, stride=64, auto=True)[0]  # init videowriter
         resize_height, resize_width = vid_write_image.shape[:2]
         out_video_name = f"{source.split('/')[-1].split('.')[0]}"
-        out = cv2.VideoWriter(f"{source}_keypoint.mp4",
+        out = cv2.VideoWriter(f"{source}_yolo.mp4",
                               cv2.VideoWriter_fourcc(*'mp4v'), fps,
                               (resize_width, resize_height))
 
