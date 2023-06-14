@@ -3,7 +3,7 @@ venv
 **.DS_Store
 
 # folders with videos
-keypoint_videos
+output_videos
 preped_videos
 test_videos
 

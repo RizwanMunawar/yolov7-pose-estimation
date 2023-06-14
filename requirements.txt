@@ -28,3 +28,5 @@ ipython  # interactive notebook
 psutil  # system utilization
 thop~=0.1.1.post2209072238
 
+
+imutils~=0.5.4
