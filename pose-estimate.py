@@ -15,68 +15,67 @@ from utils.torch_utils import select_device
 
 
 @torch.no_grad()
-def run(poseweights="yolov7-w6-pose.pt", source="preped_videos/7855_test.mp4", device='cpu', view_img=False,
+def run(poseweights="yolov7-w6-pose.pt", source=0, anonymize=True, device='cpu',
         save_conf=False, line_thickness=3, hide_labels=False, hide_conf=True):
-    frame_count = 0  # count no of frames
-    total_fps = 0  # count total fps
-
-    # Select device
+    """
+    Saves mp4 result of YOLOv7 pose model and background subtraction. Main function that reads the input video
+    stream and passes parameters down to the model and other functions.
+    """
     device = select_device(opt.device)
-    half = device.type != 'cpu'
 
     # Load model and get class names
     model = attempt_load(poseweights, map_location=device)
     _ = model.eval()
     names = model.module.names if hasattr(model, 'module') else model.names
 
-    if source.isnumeric():
-        cap = cv2.VideoCapture(int(source))  # pass video to videocapture object
+    # Check if source is webcam/camera or video file
+    if source.is_integer():
+        cap = cv2.VideoCapture(int(source))
+        time.sleep(2.0)  # Wait for webcam to turn on
     else:
-        cap = cv2.VideoCapture(source)  # pass video to videocapture object
+        cap = cv2.VideoCapture(source)
 
     if not cap.isOpened():  # check if videocapture not opened
         print('Error while trying to read video. Please check path again')
         raise SystemExit()
 
     else:
-        frame_width = int(cap.get(3))  # get video frame width
-        frame_height = int(cap.get(4))  # get video frame height
+        frame_count = 0
+        total_fps = 0
         fps = int(cap.get(cv2.CAP_PROP_FPS))
-        print(fps)
 
-        # video writer and resizing
+        # extract resizing details based of first frame
         first_frame_init = letterbox(cap.read()[1], stride=64, auto=True)[0]
         resize_height, resize_width = first_frame_init.shape[:2]
-        out_video_name = f"{source.split('/')[-1].split('.')[0]}"
-        out = cv2.VideoWriter(f"output_videos/{out_video_name}_yolo.mp4",
-                              cv2.VideoWriter_fourcc(*'mp4v'), fps,
-                              (resize_width, resize_height))
 
-        # Inital steps for background subtraction
-        background = None  # stores the first frame of the video file/webcam stream. Assumption is that the first frame will contain no motion and just the background.
-        #                   So, we can model the background of our video stream using only the first frame of the video
-        background_color = None  # Used for overlaying silhouette
-        static_counter = 0  # counts the number of frames in which the video stream hasn't changed significantly. Use this to update backgrounds as needed.
-        # loop over the frames of the video
-        prev_frame = None  # stores the previous frame
+        # Initialize video writer
+        out_video_name = f"{source.split('/')[-1].split('.')[0]}"
+        out = cv2.VideoWriter(f"output_videos/{out_video_name}_yolo_sub.mp4",
+                              cv2.VideoWriter_fourcc(*'mp4v'), fps, (resize_width, resize_height))
+
+        # Initialize background subtraction
+        background = None  # stores the a frame to compare against for changes
+        background_color = None
+        static_counter = 0  # counts the number of frames in which the video stream hasn't changed significantly.
+        prev_frame = None
 
         while cap.isOpened:  # loop until cap opened or video not complete
-
-            print("Frame {} Processing".format(frame_count + 1))
             ret, frame = cap.read()  # get frame and success from video capture
 
             first_frame = first_frame_init.copy()
 
             if ret:  # if success is true, means frame exist
+                print("Frame {} Processing".format(frame_count + 1))
                 start_time = time.time()  # start time for fps calculation
-                image = yolo_frame_helper(device, frame)
+
+                image = yolo_frame_prep(device, frame)
 
                 # Get predictions using model
                 with torch.no_grad():
                     output_data, _ = model(image)
 
-                # Specifying model parameters
-                output_data = non_max_suppression_kpt(output_data,  # Apply non max suppression
+                # Specifying model parameters using non max suppression
+                output_data = non_max_suppression_kpt(output_data,
                                                       0.45,  # Conf. Threshold.
                                                       0.65,  # IoU Threshold.
                                                       nc=model.yaml['nc'],  # Number of classes.
@@ -85,66 +84,22 @@ def run(poseweights="yolov7-w6-pose.pt", source="preped_videos/7855_test.mp4", d
 
                 # output = output_to_keypoint(output_data)
 
-                # only required if you want to overlay the background
-                # im0 = image[0].permute(1, 2,
-                #                        0) * 255  # Change format [b, c, h, w] to [h, w, c] for displaying the image.
-                # im0 = im0.cpu().numpy().astype(np.uint8)
-                #
-                # im0 = cv2.cvtColor(im0, cv2.COLOR_RGB2BGR)  # reshape image format to (BGR)
-                # gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
+                if not anonymize:
+                    # The background will be the current frame
+                    im0 = image[0].permute(1, 2, 0) * 255  # Change format [b, c, h, w] to [h, w, c]
+                    im0 = im0.cpu().numpy().astype(np.uint8)
+                    im0 = cv2.cvtColor(im0, cv2.COLOR_RGB2BGR)  # reshape image format to (BGR)
+                else:
+                    im0 = first_frame
 
-                # place the model outputs onto an image
-                processed_frame = yolo_model_helper(first_frame, names, output_data)
+                # Place the model outputs onto an image
+                yolo_output_plotter(im0, names, output_data)
 
-                curr_grey_frame = background_sub_frame_helper(frame)
-                text = "Background Subtraction: Empty"
-
-                if background is None:
-                    background = curr_grey_frame
-                    background_color = frame
-                    prev_frame = curr_grey_frame  # if the background is None, the prev_frame is also None. Initialize it.
-                    continue
-                # compute the absolute difference between the current frame and current background frame/previous frame
-                frameDelta = cv2.absdiff(background,
-                                         curr_grey_frame)  # is a function which helps in finding the absolute difference between the pixels of the 2 image arrays
-                prevDelta = cv2.absdiff(prev_frame, curr_grey_frame)
-                # threshold (thresholding is the binarization of an image. we want to convert a grayscale image to a binary image, where the pixels are either 0 or 255.)
-                thresh = cv2.threshold(frameDelta, 75, 255, cv2.THRESH_BINARY)[
-                    1]  # we want to threshold frameDelta to reveal regions of the image that only have significant changes in pixel intense values.
-                prevThresh = cv2.threshold(prevDelta, 75, 255, cv2.THRESH_BINARY)[1]
-                # find the outlines of the white parts
-                thresh = cv2.dilate(thresh, None, iterations=2)  # size of foreground increases
-                prevThresh = cv2.dilate(prevThresh, None, iterations=2)
-                cnts = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                prevCnts = cv2.findContours(prevThresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                cnts = imutils.grab_contours(cnts)
-                prevCnts = imutils.grab_contours(prevCnts)
-                background_delta = False  # flag that changes to True if the current frame is significantly different from the last frame.
-                # loop over the contours
-                for c in cnts:
-                    # if the contour is too small, ignore it
-                    if cv2.contourArea(c) < 2000:
-                        continue
-                    # compute the bounding box for the contour if the area is lare enough, draw it on the frame, and update the text
-                    (x, y, w, h) = cv2.boundingRect(c)
-                    cv2.rectangle(processed_frame, (x, y), (x + w, y + h), (0, 0, 255), 2)
-                    text = "Background Subtraction: Occupied"
-                for c in prevCnts:
-                    # if the contour is too small, ignore it
-                    if cv2.contourArea(c) < 2000:
-                        continue
-                    background_delta = True
-                    static_counter = 0  # reset to 0 since the background changed
-                    break
-                if not background_delta:
-                    static_counter += 1
-                    if static_counter > (fps * 4):  # if the frames haven't changed in more than 10 frames, update background
-                        background = curr_grey_frame
-                        background_color = frame
-                        static_counter = 0
-
-                cv2.putText(processed_frame, text, (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-
+                # Perform background substitution
+                curr_grey_frame = background_sub_frame_prep(frame)
+                processed_frame, background, static_counter = run_background_sub(background, curr_grey_frame, fps,
+                                                                                 frame, prev_frame, im0,
+                                                                                 static_counter)
                 prev_frame = curr_grey_frame
 
                 # FPS calculations
@@ -153,7 +108,7 @@ def run(poseweights="yolov7-w6-pose.pt", source="preped_videos/7855_test.mp4", d
                 total_fps += fps
                 frame_count += 1
 
-                out.write(processed_frame)
+                out.write(im0)
 
             else:
                 break
@@ -162,8 +117,85 @@ def run(poseweights="yolov7-w6-pose.pt", source="preped_videos/7855_test.mp4", d
         print(f"Average FPS: {total_fps / frame_count:.3f}")
 
 
-def yolo_frame_helper(device, frame):
-    """Prepares the frame for use in the YOLO model"""
+def background_sub_frame_prep(frame):
+    """
+    Prepares the frame to be used in background subtraction. THe frame is converted to the same size as the YOLO
+    model frame and converted to grayscale with blur. The blurring ensures high frequency noise doesn't throw off
+    the algorithm.
+    """
+    image = letterbox(frame, stride=64, auto=True)[0]
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    gray = cv2.GaussianBlur(gray, (27, 27), 0)
+    return gray
+
+
+def run_background_sub(background, curr_grey_frame, fps, frame, prev_frame, processed_frame, static_counter):
+    """
+    Returns a frame with the background subtraction completed and labeled, the current grey frame to serve as the new
+    background, and the updated static counter.
+    1) initializes background if it is the first frame
+    2) computes difference in frames
+    3) thresholding to filter areas with significant change in pixel values
+    4) finds the outlines of areas with changes and draws a box around it
+    """
+    text = "Background subtraction: no motion"
+    min_area = 2000
+    threshold_val = 75
+    static_secs = 4  # how many seconds with no change until update
+
+    if background is None:
+        background = curr_grey_frame
+        background_color = frame
+        prev_frame = curr_grey_frame  # if the background is None, the prev_frame is also None. Initialize it.
+
+    # compute the  difference
+    frame_delta = cv2.absdiff(background, curr_grey_frame)
+    prev_delta = cv2.absdiff(prev_frame, curr_grey_frame)
+
+    # pixels are either 0 or 255.
+    thresh = cv2.threshold(frame_delta, threshold_val, 255, cv2.THRESH_BINARY)[1]
+    prev_thresh = cv2.threshold(prev_delta, threshold_val, 255, cv2.THRESH_BINARY)[1]
+
+    # find the outlines of the white parts
+    thresh = cv2.dilate(thresh, None, iterations=2)  # size of foreground increases
+    prev_thresh = cv2.dilate(prev_thresh, None, iterations=2)
+    curr_contours = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    prev_contours = cv2.findContours(prev_thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    curr_contours = imutils.grab_contours(curr_contours)
+    prev_contours = imutils.grab_contours(prev_contours)
+
+    # flag that changes to True if the current frame is significantly different from the last frame.
+    background_delta = False
+
+    # loop over the contours
+    for c in curr_contours:
+        # Only care about contour if it's larger than the min
+        if cv2.contourArea(c) >= min_area:
+            # compute the bounding box for the contour if area is large, draw it on the frame, and update the text
+            (x, y, w, h) = cv2.boundingRect(c)
+            cv2.rectangle(processed_frame, (x, y), (x + w, y + h), (0, 0, 255), 2)
+            text = "Background subtraction: motion"
+    for c in prev_contours:
+        # Only care about contour if it's larger than the min
+        if cv2.contourArea(c) >= min_area:
+            background_delta = True
+            static_counter = 0  # reset to 0 since the background changed
+    if not background_delta:
+        static_counter += 1
+        if static_counter > (fps * static_secs):
+            background = curr_grey_frame
+            background_color = frame
+            static_counter = 0
+
+    cv2.putText(processed_frame, text, (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+
+    return processed_frame, background, static_counter
+
+
+def yolo_frame_prep(device, frame):
+    """
+    Prepares the frame for use in the YOLO model using the specified device.
+    """
     orig_image = frame  # store frame
     image = cv2.cvtColor(orig_image, cv2.COLOR_BGR2RGB)  # convert frame to RGB
     image = letterbox(image, stride=64, auto=True)[0]
@@ -174,16 +206,10 @@ def yolo_frame_helper(device, frame):
     return image
 
 
-def background_sub_frame_helper(frame):
-    """Uses the background subtraction method to indentify movement in the video."""
-    image = letterbox(frame, stride=64, auto=True)[0] # resizes while maintaining aspect ratio. Resizes to width = 640 pixels
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    gray = cv2.GaussianBlur(gray, (27, 27), 0) #blurring an image by a gaussian function to smooth out high frequency noise that could throw out motion detection algorithm off.
-    return gray
-
-def yolo_model_helper(background, names, output_data):
-    """Runs the YOLO model, plots the outputs to the given image, and returns the processed frame.
-    Also calculates the number of detections.
+def yolo_output_plotter(background, names, output_data):
+    """
+    Plots the yolo model outputs onto background. Calculates the number of detections and places them on the background.
+    Returns the processed frame.
     """
     for i, pose in enumerate(output_data):  # detections per image
         if len(output_data) and len(pose[:, 5].unique()) != 0:  # check if no pose
@@ -216,9 +242,10 @@ def parse_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument('--poseweights', nargs='+', type=str, default='yolov7-w6-pose.pt', help='model path(s)')
     parser.add_argument('--source', type=str, default='preped_videos/7855_test.mp4',
-                        help='video/0 for webcam')  # video source
+                        help='0 for webcam or video path')  # video source
+    parser.add_argument('--anonymize', action=argparse.BooleanOptionalAction, default=True,
+                        help="anonymize by return video with first frame as background")
     parser.add_argument('--device', type=str, default='cpu', help='cpu/0,1,2,3(gpu)')  # device arugments
-    parser.add_argument('--view-img', action='store_true', help='display results')  # display results
     parser.add_argument('--save-conf', action='store_true',
                         help='save confidences in --save-txt labels')  # save confidence in txt writing
     parser.add_argument('--line-thickness', default=3, type=int,
@@ -230,8 +257,8 @@ def parse_opt():
 
 
 # main function
-def main(opt):
-    run(**vars(opt))
+def main(options):
+    run(**vars(options))
 
 
 if __name__ == "__main__":
