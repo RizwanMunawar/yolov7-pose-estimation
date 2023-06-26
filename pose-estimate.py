@@ -1,5 +1,6 @@
 import argparse
 import time
+from datetime import datetime
 
 import cv2
 import imutils
@@ -15,7 +16,7 @@ from utils.torch_utils import select_device
 
 
 @torch.no_grad()
-def run(poseweights="yolov7-w6-pose.pt", source=0, anonymize=True, device='cpu',
+def run(source=0, anonymize=True, device='cpu', min_area=2000, thresh_val=25,
         save_conf=False, line_thickness=3, hide_labels=False, hide_conf=True):
     """
     Saves mp4 result of YOLOv7 pose model and background subtraction. Main function that reads the input video
@@ -24,12 +25,12 @@ def run(poseweights="yolov7-w6-pose.pt", source=0, anonymize=True, device='cpu',
     device = select_device(opt.device)
 
     # Load model and get class names
-    model = attempt_load(poseweights, map_location=device)
+    model = attempt_load("yolov7-w6-pose.pt", map_location=device)
     _ = model.eval()
     names = model.module.names if hasattr(model, 'module') else model.names
 
     # Check if source is webcam/camera or video file
-    if source.is_integer():
+    if source.isnumeric():
         cap = cv2.VideoCapture(int(source))
         time.sleep(2.0)  # Wait for webcam to turn on
     else:
@@ -50,14 +51,12 @@ def run(poseweights="yolov7-w6-pose.pt", source=0, anonymize=True, device='cpu',
 
         # Initialize video writer
         out_video_name = f"{source.split('/')[-1].split('.')[0]}"
-        out = cv2.VideoWriter(f"output_videos/{out_video_name}_yolo_sub.mp4",
+        out = cv2.VideoWriter(f"../output_june_20/{out_video_name}_yolo_sub.mp4",
                               cv2.VideoWriter_fourcc(*'mp4v'), fps, (resize_width, resize_height))
 
         # Initialize background subtraction
-        background = None  # stores the a frame to compare against for changes
-        background_color = None
-        static_counter = 0  # counts the number of frames in which the video stream hasn't changed significantly.
-        prev_frame = None
+        background_grey = background_sub_frame_prep(first_frame_init)  # stores the frame to compare for changes
+        # background_color = first_frame_init
 
         while cap.isOpened:  # loop until cap opened or video not complete
             ret, frame = cap.read()  # get frame and success from video capture
@@ -76,8 +75,8 @@ def run(poseweights="yolov7-w6-pose.pt", source=0, anonymize=True, device='cpu',
 
                 # Specifying model parameters using non max suppression
                 output_data = non_max_suppression_kpt(output_data,
-                                                      0.45,  # Conf. Threshold.
-                                                      0.65,  # IoU Threshold.
+                                                      0.5,  # Conf. Threshold.
+                                                      0.4,  # IoU Threshold.
                                                       nc=model.yaml['nc'],  # Number of classes.
                                                       nkpt=model.yaml['nkpt'],  # Number of keypoints.
                                                       kpt_label=True)
@@ -93,14 +92,18 @@ def run(poseweights="yolov7-w6-pose.pt", source=0, anonymize=True, device='cpu',
                     im0 = first_frame
 
                 # Place the model outputs onto an image
-                yolo_output_plotter(im0, names, output_data)
+                im0, yolo_text, bed_text = yolo_output_plotter(im0, names, output_data)
 
                 # Perform background substitution
                 curr_grey_frame = background_sub_frame_prep(frame)
-                processed_frame, background, static_counter = run_background_sub(background, curr_grey_frame, fps,
-                                                                                 frame, prev_frame, im0,
-                                                                                 static_counter)
-                prev_frame = curr_grey_frame
+                processed_frame = run_background_sub(background_grey, curr_grey_frame, im0)
+                cv2.putText(processed_frame, yolo_text, (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                cv2.putText(processed_frame, bed_text, (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+
+                # put timestamp
+                dt = datetime.now()
+                dt_str = dt.strftime("%Y-%m-%d %H:%M:%S")
+                cv2.putText(processed_frame, dt_str, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
                 # FPS calculations
                 end_time = time.time()
@@ -108,7 +111,7 @@ def run(poseweights="yolov7-w6-pose.pt", source=0, anonymize=True, device='cpu',
                 total_fps += fps
                 frame_count += 1
 
-                out.write(im0)
+                out.write(processed_frame)
 
             else:
                 break
@@ -129,7 +132,7 @@ def background_sub_frame_prep(frame):
     return gray
 
 
-def run_background_sub(background, curr_grey_frame, fps, frame, prev_frame, processed_frame, static_counter):
+def run_background_sub(background_grey, curr_grey_frame, processed_frame):
     """
     Returns a frame with the background subtraction completed and labeled, the current grey frame to serve as the new
     background, and the updated static counter.
@@ -139,57 +142,30 @@ def run_background_sub(background, curr_grey_frame, fps, frame, prev_frame, proc
     4) finds the outlines of areas with changes and draws a box around it
     """
     text = "Background subtraction: no motion"
-    min_area = 2000
-    threshold_val = 75
-    static_secs = 4  # how many seconds with no change until update
-
-    if background is None:
-        background = curr_grey_frame
-        background_color = frame
-        prev_frame = curr_grey_frame  # if the background is None, the prev_frame is also None. Initialize it.
+    threshold_val = 35
 
     # compute the  difference
-    frame_delta = cv2.absdiff(background, curr_grey_frame)
-    prev_delta = cv2.absdiff(prev_frame, curr_grey_frame)
+    frame_delta = cv2.absdiff(background_grey, curr_grey_frame)
 
     # pixels are either 0 or 255.
     thresh = cv2.threshold(frame_delta, threshold_val, 255, cv2.THRESH_BINARY)[1]
-    prev_thresh = cv2.threshold(prev_delta, threshold_val, 255, cv2.THRESH_BINARY)[1]
 
     # find the outlines of the white parts
-    thresh = cv2.dilate(thresh, None, iterations=2)  # size of foreground increases
-    prev_thresh = cv2.dilate(prev_thresh, None, iterations=2)
+    thresh = cv2.dilate(thresh, None, iterations=3)  # size of foreground increases
     curr_contours = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    prev_contours = cv2.findContours(prev_thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     curr_contours = imutils.grab_contours(curr_contours)
-    prev_contours = imutils.grab_contours(prev_contours)
 
-    # flag that changes to True if the current frame is significantly different from the last frame.
-    background_delta = False
-
-    # loop over the contours
     for c in curr_contours:
         # Only care about contour if it's larger than the min
-        if cv2.contourArea(c) >= min_area:
-            # compute the bounding box for the contour if area is large, draw it on the frame, and update the text
-            (x, y, w, h) = cv2.boundingRect(c)
-            cv2.rectangle(processed_frame, (x, y), (x + w, y + h), (0, 0, 255), 2)
+        if cv2.contourArea(c) >= opt.min_area:
             text = "Background subtraction: motion"
-    for c in prev_contours:
-        # Only care about contour if it's larger than the min
-        if cv2.contourArea(c) >= min_area:
-            background_delta = True
-            static_counter = 0  # reset to 0 since the background changed
-    if not background_delta:
-        static_counter += 1
-        if static_counter > (fps * static_secs):
-            background = curr_grey_frame
-            background_color = frame
-            static_counter = 0
+            break
 
-    cv2.putText(processed_frame, text, (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+    thresh_color = cv2.cvtColor(thresh, cv2.COLOR_GRAY2RGB)
+    overlay = cv2.addWeighted(processed_frame, 0.75, thresh_color, 0.25, 0)
+    cv2.putText(overlay, text, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
-    return processed_frame, background, static_counter
+    return overlay
 
 
 def yolo_frame_prep(device, frame):
@@ -211,41 +187,43 @@ def yolo_output_plotter(background, names, output_data):
     Plots the yolo model outputs onto background. Calculates the number of detections and places them on the background.
     Returns the processed frame.
     """
+    bed_text = "bed: empty"
+    detection_text = "YOLO detections: 0"
     for i, pose in enumerate(output_data):  # detections per image
         if len(output_data) and len(pose[:, 5].unique()) != 0:  # check if no pose
             for c in pose[:, 5].unique():  # Print results
                 n = (pose[:, 5] == c).sum()  # detections per class
                 # print("No of Objects in Current Frame : {}".format(n))
-                cv2.putText(background, "YOLO detections: {}".format(n), (10, 20),
-                            cv2.FONT_HERSHEY_SIMPLEX,
-                            0.5, (255, 255, 255), 1)
+                detection_text = "YOLO detections: {}".format(n)
 
             for det_index, (*xyxy, conf, cls) in enumerate(
                     reversed(pose[:, :6])):  # loop over poses for drawing on frame
                 c = int(cls)  # integer class
-                kpts = pose[det_index, 6:]
+                keypoints = pose[det_index, 6:]
                 label = None if opt.hide_labels else (
                     names[c] if opt.hide_conf else f'{names[c]} {conf:.2f}')
 
-                plot_one_box_kpt(xyxy, background, label=label, color=colors(c, True),
-                                 line_thickness=opt.line_thickness, kpt_label=True, kpts=kpts, steps=3,
+                bed = plot_one_box_kpt(xyxy, background, label=label, color=colors(c, True),
+                                 line_thickness=opt.line_thickness, kpt_label=True, kpts=keypoints, steps=3,
                                  orig_shape=background.shape[:2])
 
-        else:
-            cv2.putText(background, "YOLO detections: 0", (10, 20), cv2.FONT_HERSHEY_SIMPLEX,
-                        0.5, (255, 255, 255), 1)
+                if bed:
+                    bed_text = "Bed: occupied"
 
-    return background
+    return background, detection_text, bed_text
 
 
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--poseweights', nargs='+', type=str, default='yolov7-w6-pose.pt', help='model path(s)')
     parser.add_argument('--source', type=str, default='preped_videos/7855_test.mp4',
                         help='0 for webcam or video path')  # video source
     parser.add_argument('--anonymize', action=argparse.BooleanOptionalAction, default=True,
                         help="anonymize by return video with first frame as background")
-    parser.add_argument('--device', type=str, default='cpu', help='cpu/0,1,2,3(gpu)')  # device arugments
+    parser.add_argument('--device', type=str, default='cpu', help='cpu/0,1,2,3(gpu)')  # device arguments
+    parser.add_argument('--min-area', default=2000, type=int,
+                        help='define min area in pixels that counts as motion')
+    parser.add_argument('--thresh-val', default=25, type=int,
+                        help='define threshold value for difference in pixels for background subtraction')
     parser.add_argument('--save-conf', action='store_true',
                         help='save confidences in --save-txt labels')  # save confidence in txt writing
     parser.add_argument('--line-thickness', default=3, type=int,
@@ -263,5 +241,5 @@ def main(options):
 
 if __name__ == "__main__":
     opt = parse_opt()
-    strip_optimizer(opt.device, opt.poseweights)
+    strip_optimizer(opt.device)
     main(opt)

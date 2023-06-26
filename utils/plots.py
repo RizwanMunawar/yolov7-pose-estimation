@@ -56,7 +56,8 @@ def plot_one_box_kpt(x, im, color=None, label=None, line_thickness=3, kpt_label=
             cv2.rectangle(im, c1, c2, color, -1, cv2.LINE_AA)  # filled
             cv2.putText(im, label, (c1[0], c1[1] - 2), 0, tl / 6, [225, 255, 255], thickness=tf//2, lineType=cv2.LINE_AA)
     if kpt_label:
-        plot_skeleton_kpts(im, kpts, steps, orig_shape=orig_shape)
+        bed = plot_skeleton_kpts(im, kpts, steps, orig_shape=orig_shape)
+        return bed
 
 colors = Colors()  
 
@@ -493,9 +494,10 @@ def plot_skeleton_kpts(im, kpts, steps, orig_shape=None):
 
     pose_limb_color = palette[[9, 9, 9, 9, 7, 7, 7, 0, 0, 0, 0, 0, 16, 16, 16, 16, 16, 16, 16]]
     pose_kpt_color = palette[[16, 16, 16, 16, 16, 0, 0, 0, 0, 0, 0, 9, 9, 9, 9, 9, 9]]
-    radius = 5
+    radius = 3
     num_kpts = len(kpts) // steps
 
+    head_y_coord, foot_y_coord = 0, 640
     for kid in range(num_kpts):
         r, g, b = pose_kpt_color[kid]
         x_coord, y_coord = kpts[steps * kid], kpts[steps * kid + 1]
@@ -505,6 +507,11 @@ def plot_skeleton_kpts(im, kpts, steps, orig_shape=None):
                 if conf < 0.5:
                     continue
             cv2.circle(im, (int(x_coord), int(y_coord)), radius, (int(r), int(g), int(b)), -1)
+
+            if (0 <= kid <= 6) and y_coord > head_y_coord:
+                head_y_coord = y_coord
+            elif ((num_kpts - 6) <= kid <= num_kpts) and y_coord < foot_y_coord:
+                foot_y_coord = y_coord
 
     for sk_id, sk in enumerate(skeleton):
         r, g, b = pose_limb_color[sk_id]
@@ -520,3 +527,5 @@ def plot_skeleton_kpts(im, kpts, steps, orig_shape=None):
         if pos2[0] % 640 == 0 or pos2[1] % 640 == 0 or pos2[0]<0 or pos2[1]<0:
             continue
         cv2.line(im, pos1, pos2, (int(r), int(g), int(b)), thickness=2)
+
+    return foot_y_coord < head_y_coord
