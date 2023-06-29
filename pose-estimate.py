@@ -1,6 +1,7 @@
 import argparse
 import time
 from datetime import datetime
+import pandas as pd
 
 import cv2
 import imutils
@@ -41,6 +42,9 @@ def run(source=0, anonymize=True, device='cpu', min_area=2000, thresh_val=25,
         raise SystemExit()
 
     else:
+        # initiate dataframe
+        df = pd.DataFrame(columns=['date', 'time', 'motion', 'yolo_detections', 'bed_occupied'])
+
         frame_count = 0
         total_fps = 0
         fps = int(cap.get(cv2.CAP_PROP_FPS))
@@ -51,7 +55,7 @@ def run(source=0, anonymize=True, device='cpu', min_area=2000, thresh_val=25,
 
         # Initialize video writer
         out_video_name = f"{source.split('/')[-1].split('.')[0]}"
-        out = cv2.VideoWriter(f"../output_june_20/{out_video_name}_yolo_sub.mp4",
+        out = cv2.VideoWriter(f"../output_videos/{out_video_name}_yolo_sub.mp4",
                               cv2.VideoWriter_fourcc(*'mp4v'), fps, (resize_width, resize_height))
 
         # Initialize background subtraction
@@ -92,23 +96,34 @@ def run(source=0, anonymize=True, device='cpu', min_area=2000, thresh_val=25,
                     im0 = first_frame
 
                 # Place the model outputs onto an image
-                im0, yolo_text, bed_text = yolo_output_plotter(im0, names, output_data)
+                im0, num_detections, bed_occupied = yolo_output_plotter(im0, names, output_data)
 
                 # Perform background substitution
                 curr_grey_frame = background_sub_frame_prep(frame)
-                processed_frame = run_background_sub(background_grey, curr_grey_frame, im0)
-                cv2.putText(processed_frame, yolo_text, (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-                cv2.putText(processed_frame, bed_text, (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                processed_frame, is_motion = run_background_sub(background_grey, curr_grey_frame, im0)
+
+                # place results in the video
+                cv2.putText(processed_frame, "Bed occupied: {}".format(is_motion), (10, 40),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                cv2.putText(processed_frame, "YOLO detections: {}".format(num_detections), (10, 60),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                cv2.putText(processed_frame, "Bed occupied: {}".format(bed_occupied), (10, 80),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
                 # put timestamp
                 dt = datetime.now()
-                dt_str = dt.strftime("%Y-%m-%d %H:%M:%S")
-                cv2.putText(processed_frame, dt_str, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                cv2.putText(processed_frame, dt.strftime("%Y-%m-%d %H:%M:%S"), (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                            (255, 255, 255), 1)
+
+                # write data to csv
+                if frame_count % int(fps) == 0:
+                    new_row = {'date': dt.strftime("%Y-%m-%d"), 'time': dt.strftime("%H:%M:%S"), 'motion': is_motion,
+                               'yolo_detections': int(num_detections), 'bed_occupied': bool(bed_occupied)}
+                    df.loc[len(df)] = new_row
 
                 # FPS calculations
                 end_time = time.time()
-                fps = 1 / (end_time - start_time)
-                total_fps += fps
+                total_fps += 1 / (end_time - start_time)
                 frame_count += 1
 
                 out.write(processed_frame)
@@ -117,6 +132,7 @@ def run(source=0, anonymize=True, device='cpu', min_area=2000, thresh_val=25,
                 break
 
         cap.release()
+        df.to_csv(f"../output_videos/{out_video_name}_yolo_sub.csv", index=False)
         print(f"Average FPS: {total_fps / frame_count:.3f}")
 
 
@@ -141,14 +157,13 @@ def run_background_sub(background_grey, curr_grey_frame, processed_frame):
     3) thresholding to filter areas with significant change in pixel values
     4) finds the outlines of areas with changes and draws a box around it
     """
-    text = "Background subtraction: no motion"
-    threshold_val = 35
+    is_motion = False
 
     # compute the  difference
     frame_delta = cv2.absdiff(background_grey, curr_grey_frame)
 
     # pixels are either 0 or 255.
-    thresh = cv2.threshold(frame_delta, threshold_val, 255, cv2.THRESH_BINARY)[1]
+    thresh = cv2.threshold(frame_delta, opt.thresh_val, 255, cv2.THRESH_BINARY)[1]
 
     # find the outlines of the white parts
     thresh = cv2.dilate(thresh, None, iterations=3)  # size of foreground increases
@@ -158,14 +173,13 @@ def run_background_sub(background_grey, curr_grey_frame, processed_frame):
     for c in curr_contours:
         # Only care about contour if it's larger than the min
         if cv2.contourArea(c) >= opt.min_area:
-            text = "Background subtraction: motion"
+            is_motion = True
             break
 
     thresh_color = cv2.cvtColor(thresh, cv2.COLOR_GRAY2RGB)
     overlay = cv2.addWeighted(processed_frame, 0.75, thresh_color, 0.25, 0)
-    cv2.putText(overlay, text, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
-    return overlay
+    return overlay, is_motion
 
 
 def yolo_frame_prep(device, frame):
@@ -187,14 +201,15 @@ def yolo_output_plotter(background, names, output_data):
     Plots the yolo model outputs onto background. Calculates the number of detections and places them on the background.
     Returns the processed frame.
     """
-    bed_text = "bed: empty"
-    detection_text = "YOLO detections: 0"
+    # if there are no poses, then there is no one on the bed
+    bed = 0
+    n = 0
+
     for i, pose in enumerate(output_data):  # detections per image
         if len(output_data) and len(pose[:, 5].unique()) != 0:  # check if no pose
             for c in pose[:, 5].unique():  # Print results
                 n = (pose[:, 5] == c).sum()  # detections per class
-                # print("No of Objects in Current Frame : {}".format(n))
-                detection_text = "YOLO detections: {}".format(n)
+                # "YOLO detections: {}".format(n)
 
             for det_index, (*xyxy, conf, cls) in enumerate(
                     reversed(pose[:, :6])):  # loop over poses for drawing on frame
@@ -210,7 +225,7 @@ def yolo_output_plotter(background, names, output_data):
                 if bed:
                     bed_text = "Bed: occupied"
 
-    return background, detection_text, bed_text
+    return background, n, bed
 
 
 def parse_opt():
