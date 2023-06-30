@@ -232,7 +232,7 @@ def parse_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument('--source', type=str, default='preped_videos/7855_test.mp4',
                         help='0 for webcam or video path')  # video source
-    parser.add_argument('--anonymize', action=argparse.BooleanOptionalAction, default=True,
+    parser.add_argument('--anonymize', action='store_true',
                         help="anonymize by return video with first frame as background")
     parser.add_argument('--device', type=str, default='cpu', help='cpu/0,1,2,3(gpu)')  # device arguments
     parser.add_argument('--min-area', default=2000, type=int,
