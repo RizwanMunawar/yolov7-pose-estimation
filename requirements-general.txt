@@ -1,0 +1,21 @@
+# Usage: pip install -r requirements-general.txt
+# This will work on most computers. If you're using a Jetson, please use requirements-jetson.txt
+
+# Base ----------------------------------------
+matplotlib==3.7.1
+numpy==1.24.4
+opencv-python==4.8.0.74
+PyYAML==6.0
+requests==2.31.0
+scipy==1.10.1
+torch==2.0.1
+torchvision==0.15.2
+tqdm==4.65.0
+imutils==0.5.4
+
+# Plotting ------------------------------------
+pandas==2.0.2
+seaborn==0.12.2
+
+# Extras --------------------------------------
+thop==0.1.1.post2209072238

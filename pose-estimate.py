@@ -55,7 +55,7 @@ def run(source=0, anonymize=True, device='cpu', min_area=2000, thresh_val=25,
 
         # Initialize video writer
         out_video_name = f"{source.split('/')[-1].split('.')[0]}"
-        out = cv2.VideoWriter(f"../output_videos/{out_video_name}_yolo_sub.mp4",
+        out = cv2.VideoWriter(f"output_videos/{out_video_name}_yolo_sub.mp4",
                               cv2.VideoWriter_fourcc(*'mp4v'), fps, (resize_width, resize_height))
 
         # Initialize background subtraction
@@ -79,7 +79,7 @@ def run(source=0, anonymize=True, device='cpu', min_area=2000, thresh_val=25,
 
                 # Specifying model parameters using non max suppression
                 output_data = non_max_suppression_kpt(output_data,
-                                                      0.5,  # Conf. Threshold.
+                                                      0.4,  # Conf. Threshold.
                                                       0.4,  # IoU Threshold.
                                                       nc=model.yaml['nc'],  # Number of classes.
                                                       nkpt=model.yaml['nkpt'],  # Number of keypoints.
@@ -103,7 +103,7 @@ def run(source=0, anonymize=True, device='cpu', min_area=2000, thresh_val=25,
                 processed_frame, is_motion = run_background_sub(background_grey, curr_grey_frame, im0)
 
                 # place results in the video
-                cv2.putText(processed_frame, "Bed occupied: {}".format(is_motion), (10, 40),
+                cv2.putText(processed_frame, "Motion: {}".format(is_motion), (10, 40),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
                 cv2.putText(processed_frame, "YOLO detections: {}".format(num_detections), (10, 60),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
@@ -230,14 +230,13 @@ def yolo_output_plotter(background, names, output_data):
 
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--source', type=str, default='preped_videos/7855_test.mp4',
-                        help='0 for webcam or video path')  # video source
+    parser.add_argument('--source', type=str, default=0, help='0 for webcam or video path')  # video source
     parser.add_argument('--anonymize', action='store_true',
                         help="anonymize by return video with first frame as background")
     parser.add_argument('--device', type=str, default='cpu', help='cpu/0,1,2,3(gpu)')  # device arguments
     parser.add_argument('--min-area', default=2000, type=int,
                         help='define min area in pixels that counts as motion')
-    parser.add_argument('--thresh-val', default=25, type=int,
+    parser.add_argument('--thresh-val', default=40, type=int,
                         help='define threshold value for difference in pixels for background subtraction')
     parser.add_argument('--save-conf', action='store_true',
                         help='save confidences in --save-txt labels')  # save confidence in txt writing
