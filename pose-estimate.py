@@ -17,7 +17,7 @@ from utils.torch_utils import select_device
 
 
 @torch.no_grad()
-def run(source=0, anonymize=True, device='cpu', min_area=2000, thresh_val=25,
+def run(source=0, anonymize=True, device='cpu', min_area=2000, thresh_val=25, yolo_conf=0.4,
         save_conf=False, line_thickness=3, hide_labels=False, hide_conf=True):
     """
     Saves mp4 result of YOLOv7 pose model and background subtraction. Main function that reads the input video
@@ -45,11 +45,14 @@ def run(source=0, anonymize=True, device='cpu', min_area=2000, thresh_val=25,
         # initiate dataframe
         df = pd.DataFrame(columns=['date', 'time', 'motion', 'yolo_detections', 'bed_occupied'])
 
+        # Frame calculations
         frame_count = 0
         total_fps = 0
-        fps = int(cap.get(cv2.CAP_PROP_FPS))
+        # fps = int(cap.get(cv2.CAP_PROP_FPS))
+        fps = 4
+        starttime = time.monotonic()
 
-        # extract resizing details based of first frame
+        # Extract resizing details based of first frame
         first_frame_init = letterbox(cap.read()[1], stride=64, auto=True)[0]
         resize_height, resize_width = first_frame_init.shape[:2]
 
@@ -58,87 +61,117 @@ def run(source=0, anonymize=True, device='cpu', min_area=2000, thresh_val=25,
         out = cv2.VideoWriter(f"output_videos/{out_video_name}_yolo_sub.mp4",
                               cv2.VideoWriter_fourcc(*'mp4v'), fps, (resize_width, resize_height))
 
-        # Initialize background subtraction
-        background_grey = background_sub_frame_prep(first_frame_init)  # stores the frame to compare for changes
-        # background_color = first_frame_init
+        # Initialize background subtraction by storing first frame to compare
+        background_grey = background_sub_frame_prep(first_frame_init)
 
-        while cap.isOpened:  # loop until cap opened or video not complete
-            ret, frame = cap.read()  # get frame and success from video capture
+        try:
+            while cap.isOpened:
+                ret, frame = cap.read()  # get frame and success from video capture
 
-            first_frame = first_frame_init.copy()
+                # exit if failed to get frame
+                if not ret:
+                    break
 
-            if ret:  # if success is true, means frame exist
                 print("Frame {} Processing".format(frame_count + 1))
-                start_time = time.time()  # start time for fps calculation
+                fps_start_time = time.time()  # start time for fps calculation
 
-                image = yolo_frame_prep(device, frame)
+                # Background subtraction and YOLO frame prep
+                curr_grey_frame = background_sub_frame_prep(frame)
+                frame = yolo_frame_prep(device, frame)
 
-                # Get predictions using model
+                if not anonymize:
+                    # The background will be the current frame
+                    im0 = frame[0].permute(1, 2, 0) * 255  # Change format [b, c, h, w] to [h, w, c]
+                    im0 = im0.cpu().numpy().astype(np.uint8)
+                    im0 = cv2.cvtColor(im0, cv2.COLOR_RGB2BGR)  # reshape image format to (BGR)
+                else:
+                    im0 = first_frame_init.copy()
+
+                # Perform background substitution
+                processed_frame, is_motion = run_background_sub(background_grey, curr_grey_frame, im0)
+
+                if not is_motion:
+                    # Assume if there is no motion, then there are no people. Implies the first frame has no people.
+                    date_time = place_txt_results(False, is_motion, 0, processed_frame)
+
+                    # Write data to csv
+                    if frame_count % int(fps) == 0:
+                        update_df(False, date_time, df, is_motion, 0)
+
+                    out.write(processed_frame)
+
+                    # FPS calculation
+                    end_time = time.time()
+                    total_fps += 1 / (end_time - fps_start_time)
+                    frame_count += 1
+                    time.sleep(0.25 - ((time.monotonic() - starttime) % 0.25))
+                    continue
+
+                # Perform YOLO. Get predictions using model
                 with torch.no_grad():
-                    output_data, _ = model(image)
+                    output_data, _ = model(frame)
 
                 # Specifying model parameters using non max suppression
                 output_data = non_max_suppression_kpt(output_data,
-                                                      0.4,  # Conf. Threshold.
+                                                      opt.yolo_conf,  # Conf. Threshold.
                                                       0.4,  # IoU Threshold.
                                                       nc=model.yaml['nc'],  # Number of classes.
                                                       nkpt=model.yaml['nkpt'],  # Number of keypoints.
                                                       kpt_label=True)
 
-                # output = output_to_keypoint(output_data)
+                # Place the model outputs onto an frame
+                processed_frame, num_detections, bed_occupied = yolo_output_plotter(processed_frame, names, output_data)
+                date_time = place_txt_results(bed_occupied, is_motion, num_detections, processed_frame)
 
-                if not anonymize:
-                    # The background will be the current frame
-                    im0 = image[0].permute(1, 2, 0) * 255  # Change format [b, c, h, w] to [h, w, c]
-                    im0 = im0.cpu().numpy().astype(np.uint8)
-                    im0 = cv2.cvtColor(im0, cv2.COLOR_RGB2BGR)  # reshape image format to (BGR)
-                else:
-                    im0 = first_frame
-
-                # Place the model outputs onto an image
-                im0, num_detections, bed_occupied = yolo_output_plotter(im0, names, output_data)
-
-                # Perform background substitution
-                curr_grey_frame = background_sub_frame_prep(frame)
-                processed_frame, is_motion = run_background_sub(background_grey, curr_grey_frame, im0)
-
-                # place results in the video
-                cv2.putText(processed_frame, "Motion: {}".format(is_motion), (10, 40),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-                cv2.putText(processed_frame, "YOLO detections: {}".format(num_detections), (10, 60),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-                cv2.putText(processed_frame, "Bed occupied: {}".format(bed_occupied), (10, 80),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-
-                # put timestamp
-                dt = datetime.now()
-                cv2.putText(processed_frame, dt.strftime("%Y-%m-%d %H:%M:%S"), (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
-                            (255, 255, 255), 1)
-
-                # write data to csv
                 if frame_count % int(fps) == 0:
-                    new_row = {'date': dt.strftime("%Y-%m-%d"), 'time': dt.strftime("%H:%M:%S"), 'motion': is_motion,
-                               'yolo_detections': int(num_detections), 'bed_occupied': bool(bed_occupied)}
-                    df.loc[len(df)] = new_row
-
-                # FPS calculations
-                end_time = time.time()
-                total_fps += 1 / (end_time - start_time)
-                frame_count += 1
+                    update_df(bed_occupied, date_time, df, is_motion, num_detections)
 
                 out.write(processed_frame)
 
-            else:
-                break
+                # FPS calculations
+                end_time = time.time()
+                total_fps += 1 / (end_time - fps_start_time)
+                frame_count += 1
+
+                time.sleep(0.25 - ((time.monotonic() - starttime) % 0.25))
+
+        except KeyboardInterrupt:
+            pass
 
         cap.release()
-        df.to_csv(f"../output_videos/{out_video_name}_yolo_sub.csv", index=False)
+        df.to_csv(f"output_videos/{out_video_name}_yolo_sub.csv", index=False)
         print(f"Average FPS: {total_fps / frame_count:.3f}")
+
+
+def update_df(bed_occupied, date_time, df, is_motion, num_detections):
+    """Updates the dataframe df with details from the current frame
+    """
+    new_row = {'date': date_time.strftime("%Y-%m-%d"), 'time': date_time.strftime("%H:%M:%S"), 'motion': is_motion,
+               'yolo_detections': int(num_detections), 'bed_occupied': bool(bed_occupied)}
+    df.loc[len(df)] = new_row
+
+
+def place_txt_results(bed_occupied, is_motion, num_detections, processed_frame):
+    """Places the text of the results onto the processed frame.
+    """
+    cv2.putText(processed_frame, "Motion: {}".format(is_motion), (10, 40),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+    cv2.putText(processed_frame, "YOLO detections: {}".format(num_detections), (10, 60),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+    cv2.putText(processed_frame, "Bed occupied: {}".format(bed_occupied), (10, 80),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+
+    # put timestamp
+    dt = datetime.now()
+    cv2.putText(processed_frame, dt.strftime("%Y-%m-%d %H:%M:%S"), (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                (255, 255, 255), 1)
+
+    return dt
 
 
 def background_sub_frame_prep(frame):
     """
-    Prepares the frame to be used in background subtraction. THe frame is converted to the same size as the YOLO
+    Prepares the frame to be used in background subtraction. The frame is converted to the same size as the YOLO
     model frame and converted to grayscale with blur. The blurring ensures high frequency noise doesn't throw off
     the algorithm.
     """
@@ -148,14 +181,14 @@ def background_sub_frame_prep(frame):
     return gray
 
 
-def run_background_sub(background_grey, curr_grey_frame, processed_frame):
+def run_background_sub(background_grey, curr_grey_frame, curr_color_frame):
     """
     Returns a frame with the background subtraction completed and labeled, the current grey frame to serve as the new
     background, and the updated static counter.
     1) initializes background if it is the first frame
     2) computes difference in frames
     3) thresholding to filter areas with significant change in pixel values
-    4) finds the outlines of areas with changes and draws a box around it
+    4) highlights the areas with motion in white
     """
     is_motion = False
 
@@ -177,7 +210,7 @@ def run_background_sub(background_grey, curr_grey_frame, processed_frame):
             break
 
     thresh_color = cv2.cvtColor(thresh, cv2.COLOR_GRAY2RGB)
-    overlay = cv2.addWeighted(processed_frame, 0.75, thresh_color, 0.25, 0)
+    overlay = cv2.addWeighted(curr_color_frame, 0.75, thresh_color, 0.25, 0)
 
     return overlay, is_motion
 
@@ -238,6 +271,8 @@ def parse_opt():
                         help='define min area in pixels that counts as motion')
     parser.add_argument('--thresh-val', default=40, type=int,
                         help='define threshold value for difference in pixels for background subtraction')
+    parser.add_argument('--yolo-conf', default=0.4, type=float,
+                        help='define min confidence level for YOLO model')
     parser.add_argument('--save-conf', action='store_true',
                         help='save confidences in --save-txt labels')  # save confidence in txt writing
     parser.add_argument('--line-thickness', default=3, type=int,

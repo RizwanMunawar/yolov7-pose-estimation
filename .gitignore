@@ -1,12 +1,16 @@
+# IDE or vritual enviroments
 .idea
-venv
-**.DS_Store
+*venv*
+*.DS_Store
 
-# folders with videos
-output_videos/*
-!output_videos/.gitkeep
+# folders with input videos
 preped_videos
 test_videos
+input_videos
 
 # Model file is too big for GitHub
 yolov7-w6-pose.pt
+
+# Jetson specifc package installation stuff
+torchvision
+*.whl
