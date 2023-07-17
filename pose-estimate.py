@@ -1,4 +1,5 @@
 import argparse
+import collections
 import time
 from datetime import datetime
 import pandas as pd
@@ -7,9 +8,10 @@ import cv2
 import imutils
 import numpy as np
 import torch
-from torchvision import transforms
 
 from models.experimental import attempt_load
+from utils import frame
+from utils.frame import background_sub_frame_prep, yolo_frame_prep
 from utils.datasets import letterbox
 from utils.general import non_max_suppression_kpt, strip_optimizer
 from utils.plots import colors, plot_one_box_kpt
@@ -49,7 +51,7 @@ def run(source=0, anonymize=True, device='cpu', min_area=2000, thresh_val=25, yo
         frame_count = 0
         total_fps = 0
         # fps = int(cap.get(cv2.CAP_PROP_FPS))
-        fps = 4
+        fps = 5
         starttime = time.monotonic()
 
         # Extract resizing details based of first frame
@@ -57,16 +59,21 @@ def run(source=0, anonymize=True, device='cpu', min_area=2000, thresh_val=25, yo
         resize_height, resize_width = first_frame_init.shape[:2]
 
         # Initialize video writer
+        curr_time = datetime.now().strftime("%Y-%m-%d %H-%M-%S")
         out_video_name = f"{source.split('/')[-1].split('.')[0]}"
-        out = cv2.VideoWriter(f"output_videos/{out_video_name}_yolo_sub.mp4",
+        out = cv2.VideoWriter(f"output_videos/{out_video_name}_{curr_time}.mp4",
                               cv2.VideoWriter_fourcc(*'mp4v'), fps, (resize_width, resize_height))
 
+        # Initialize video buffer for when there is no motion
+        buffer_seconds = 3
+        buffered_frames = collections.deque([], (fps * buffer_seconds))
+
         # Initialize background subtraction by storing first frame to compare
-        background_grey = background_sub_frame_prep(first_frame_init)
+        init_background_grey = background_sub_frame_prep(first_frame_init)
 
         try:
             while cap.isOpened:
-                ret, frame = cap.read()  # get frame and success from video capture
+                ret, curr_frame = cap.read()  # get frame and success from video capture
 
                 # exit if failed to get frame
                 if not ret:
@@ -76,57 +83,65 @@ def run(source=0, anonymize=True, device='cpu', min_area=2000, thresh_val=25, yo
                 fps_start_time = time.time()  # start time for fps calculation
 
                 # Background subtraction and YOLO frame prep
-                curr_grey_frame = background_sub_frame_prep(frame)
-                frame = yolo_frame_prep(device, frame)
+                curr_grey_frame = background_sub_frame_prep(curr_frame)
+                curr_frame = yolo_frame_prep(device, curr_frame)
 
-                if not anonymize:
+                if anonymize:
+                    im0 = first_frame_init.copy()
+                else:
                     # The background will be the current frame
-                    im0 = frame[0].permute(1, 2, 0) * 255  # Change format [b, c, h, w] to [h, w, c]
+                    im0 = curr_frame[0].permute(1, 2, 0) * 255  # Change format [b, c, h, w] to [h, w, c]
                     im0 = im0.cpu().numpy().astype(np.uint8)
                     im0 = cv2.cvtColor(im0, cv2.COLOR_RGB2BGR)  # reshape image format to (BGR)
-                else:
-                    im0 = first_frame_init.copy()
 
                 # Perform background substitution
-                processed_frame, is_motion = run_background_sub(background_grey, curr_grey_frame, im0)
+                processed_frame = run_background_sub(init_background_grey, curr_grey_frame, im0)
+                is_motion = processed_frame.get_is_motion
 
-                if not is_motion:
-                    # Assume if there is no motion, then there are no people. Implies the first frame has no people.
-                    date_time = place_txt_results(False, is_motion, 0, processed_frame)
+                if is_motion:
+                    # Perform YOLO. Get predictions using model
+                    with torch.no_grad():
+                        output_data, _ = model(curr_frame)
 
-                    # Write data to csv
-                    if frame_count % int(fps) == 0:
-                        update_df(False, date_time, df, is_motion, 0)
+                    # Specifying model parameters using non max suppression
+                    output_data = non_max_suppression_kpt(output_data,
+                                                          opt.yolo_conf,  # Conf. Threshold.
+                                                          0.4,  # IoU Threshold.
+                                                          nc=model.yaml['nc'],  # Number of classes.
+                                                          nkpt=model.yaml['nkpt'],  # Number of keypoints.
+                                                          kpt_label=True)
 
-                    out.write(processed_frame)
+                    # Place the model outputs onto an frame
+                    processed_frame = yolo_output_plotter(processed_frame.get_processed_frame, names, output_data)
+                else:
+                    # Assume the first frame has no people. Then,
+                    processed_frame.set_bed_occupied(False)
+                    processed_frame.set_num_detections(0)
 
-                    # FPS calculation
-                    end_time = time.time()
-                    total_fps += 1 / (end_time - fps_start_time)
-                    frame_count += 1
-                    time.sleep(0.25 - ((time.monotonic() - starttime) % 0.25))
-                    continue
+                date_time = place_txt_results(processed_frame.get_bed_occupied, is_motion,
+                                              processed_frame.get_num_detections, processed_frame.get_processed_frame)
 
-                # Perform YOLO. Get predictions using model
-                with torch.no_grad():
-                    output_data, _ = model(frame)
+                update_df(processed_frame.get_bed_occupied, date_time, df, is_motion,
+                          processed_frame.get_num_detections, frame_count, fps)
 
-                # Specifying model parameters using non max suppression
-                output_data = non_max_suppression_kpt(output_data,
-                                                      opt.yolo_conf,  # Conf. Threshold.
-                                                      0.4,  # IoU Threshold.
-                                                      nc=model.yaml['nc'],  # Number of classes.
-                                                      nkpt=model.yaml['nkpt'],  # Number of keypoints.
-                                                      kpt_label=True)
+                # Figure out how to save the frame based off buffer
+                buffer_lst = list(buffered_frames)
+                is_motion_lst = [f.get_is_motion for f in buffer_lst]
+                if not any(is_motion_lst) and is_motion:
+                    curr_time = datetime.now().strftime("%Y-%m-%d %H-%M-%S")
+                    out_video_name = f"{source.split('/')[-1].split('.')[0]}"
+                    out = cv2.VideoWriter(f"output_videos/{out_video_name}_{curr_time}.mp4",
+                                          cv2.VideoWriter_fourcc(*'mp4v'), fps, (resize_width, resize_height))
+                    for f in buffer_lst:
+                        out.write(f.get_processed_frame)
+                    out.write(processed_frame.get_processed_frame)
+                elif any(is_motion_lst):
+                    out.write(processed_frame.get_processed_frame)
+                elif not any(is_motion_lst) and not is_motion:
+                    out.release()
 
-                # Place the model outputs onto an frame
-                processed_frame, num_detections, bed_occupied = yolo_output_plotter(processed_frame, names, output_data)
-                date_time = place_txt_results(bed_occupied, is_motion, num_detections, processed_frame)
-
-                if frame_count % int(fps) == 0:
-                    update_df(bed_occupied, date_time, df, is_motion, num_detections)
-
-                out.write(processed_frame)
+                # update buffer
+                buffered_frames.append(processed_frame)
 
                 # FPS calculations
                 end_time = time.time()
@@ -143,12 +158,13 @@ def run(source=0, anonymize=True, device='cpu', min_area=2000, thresh_val=25, yo
         print(f"Average FPS: {total_fps / frame_count:.3f}")
 
 
-def update_df(bed_occupied, date_time, df, is_motion, num_detections):
+def update_df(bed_occupied, date_time, df, is_motion, num_detections, frame_count, fps):
     """Updates the dataframe df with details from the current frame
     """
-    new_row = {'date': date_time.strftime("%Y-%m-%d"), 'time': date_time.strftime("%H:%M:%S"), 'motion': is_motion,
-               'yolo_detections': int(num_detections), 'bed_occupied': bool(bed_occupied)}
-    df.loc[len(df)] = new_row
+    if frame_count % int(fps) == 0:
+        new_row = {'date': date_time.strftime("%Y-%m-%d"), 'time': date_time.strftime("%H:%M:%S"), 'motion': is_motion,
+                   'yolo_detections': int(num_detections), 'bed_occupied': bool(bed_occupied)}
+        df.loc[len(df)] = new_row
 
 
 def place_txt_results(bed_occupied, is_motion, num_detections, processed_frame):
@@ -167,18 +183,6 @@ def place_txt_results(bed_occupied, is_motion, num_detections, processed_frame):
                 (255, 255, 255), 1)
 
     return dt
-
-
-def background_sub_frame_prep(frame):
-    """
-    Prepares the frame to be used in background subtraction. The frame is converted to the same size as the YOLO
-    model frame and converted to grayscale with blur. The blurring ensures high frequency noise doesn't throw off
-    the algorithm.
-    """
-    image = letterbox(frame, stride=64, auto=True)[0]
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    gray = cv2.GaussianBlur(gray, (27, 27), 0)
-    return gray
 
 
 def run_background_sub(background_grey, curr_grey_frame, curr_color_frame):
@@ -212,21 +216,9 @@ def run_background_sub(background_grey, curr_grey_frame, curr_color_frame):
     thresh_color = cv2.cvtColor(thresh, cv2.COLOR_GRAY2RGB)
     overlay = cv2.addWeighted(curr_color_frame, 0.75, thresh_color, 0.25, 0)
 
-    return overlay, is_motion
+    overlay = frame.ProcessedFrame(overlay, is_motion)
 
-
-def yolo_frame_prep(device, frame):
-    """
-    Prepares the frame for use in the YOLO model using the specified device.
-    """
-    orig_image = frame  # store frame
-    image = cv2.cvtColor(orig_image, cv2.COLOR_BGR2RGB)  # convert frame to RGB
-    image = letterbox(image, stride=64, auto=True)[0]
-    image = transforms.ToTensor()(image)
-    image = torch.tensor(np.array([image.numpy()]))
-    image = image.to(device)  # convert image data to device
-    image = image.float()  # convert image to float precision (cpu)
-    return image
+    return overlay
 
 
 def yolo_output_plotter(background, names, output_data):
@@ -235,7 +227,7 @@ def yolo_output_plotter(background, names, output_data):
     Returns the processed frame.
     """
     # if there are no poses, then there is no one on the bed
-    bed = 0
+    bed_occupied = False
     n = 0
 
     for i, pose in enumerate(output_data):  # detections per image
@@ -251,14 +243,13 @@ def yolo_output_plotter(background, names, output_data):
                 label = None if opt.hide_labels else (
                     names[c] if opt.hide_conf else f'{names[c]} {conf:.2f}')
 
-                bed = plot_one_box_kpt(xyxy, background, label=label, color=colors(c, True),
+                bed_occupied = plot_one_box_kpt(xyxy, background, label=label, color=colors(c, True),
                                  line_thickness=opt.line_thickness, kpt_label=True, kpts=keypoints, steps=3,
                                  orig_shape=background.shape[:2])
 
-                if bed:
-                    bed_text = "Bed: occupied"
+    processed_frame = frame.ProcessedFrame(background, True, n, bed_occupied)
 
-    return background, n, bed
+    return processed_frame
 
 
 def parse_opt():
