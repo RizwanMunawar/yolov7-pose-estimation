@@ -59,10 +59,7 @@ def run(source=0, anonymize=True, device='cpu', min_area=2000, thresh_val=25, yo
         resize_height, resize_width = first_frame_init.shape[:2]
 
         # Initialize video writer
-        curr_time = datetime.now().strftime("%Y-%m-%d %H-%M-%S")
-        out_video_name = f"{source.split('/')[-1].split('.')[0]}"
-        out = cv2.VideoWriter(f"output_videos/{out_video_name}_{curr_time}.mp4",
-                              cv2.VideoWriter_fourcc(*'mp4v'), fps, (resize_width, resize_height))
+        out = None
 
         # Initialize video buffer for when there is no motion
         buffer_seconds = 3
@@ -135,9 +132,9 @@ def run(source=0, anonymize=True, device='cpu', min_area=2000, thresh_val=25, yo
                     for f in buffer_lst:
                         out.write(f.get_processed_frame)
                     out.write(processed_frame.get_processed_frame)
-                elif any(is_motion_lst):
+                elif any(is_motion_lst) and out is not None:
                     out.write(processed_frame.get_processed_frame)
-                elif not any(is_motion_lst) and not is_motion:
+                elif not any(is_motion_lst) and not is_motion and out is not None:
                     out.release()
 
                 # update buffer
@@ -148,7 +145,7 @@ def run(source=0, anonymize=True, device='cpu', min_area=2000, thresh_val=25, yo
                 total_fps += 1 / (end_time - fps_start_time)
                 frame_count += 1
 
-                time.sleep(0.25 - ((time.monotonic() - starttime) % 0.25))
+                time.sleep(0.2 - ((time.monotonic() - starttime) % 0.2))
 
         except KeyboardInterrupt:
             pass
