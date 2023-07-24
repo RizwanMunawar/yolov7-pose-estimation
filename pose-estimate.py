@@ -21,12 +21,12 @@ from utils.plots import colors, plot_one_box_kpt
 from utils.torch_utils import select_device
 
 # Initialize streaming
-lock = threading.Lock()
-app = Flask(__name__)
+# lock = threading.Lock()
+# app = Flask(__name__)
 
 
 @torch.no_grad()
-def run(source=0, anonymize=True, device='cpu', min_area=2000, thresh_val=25, yolo_conf=0.4,
+def run(ip, port, source=0, anonymize=True, device='cpu', min_area=2000, thresh_val=25, yolo_conf=0.4,
         save_conf=False, line_thickness=3, hide_labels=False, hide_conf=True):
     """
     Saves mp4 result of YOLOv7 pose model and background subtraction. Main function that reads the input video
@@ -58,7 +58,7 @@ def run(source=0, anonymize=True, device='cpu', min_area=2000, thresh_val=25, yo
         frame_count = 0
         total_fps = 0
         # fps = int(cap.get(cv2.CAP_PROP_FPS))
-        fps = 5
+        fps = 4
         starttime = time.monotonic()
 
         # Extract resizing details based of first frame
@@ -72,12 +72,16 @@ def run(source=0, anonymize=True, device='cpu', min_area=2000, thresh_val=25, yo
         buffer_seconds = 3
         buffered_frames = collections.deque([], (fps * buffer_seconds))
 
+        # Initialize counter for duration since last change
+        static_count = 0
+
         # Initialize background subtraction by storing first frame to compare
         init_background_grey = background_sub_frame_prep(first_frame_init)
+        prev_grey_frame = init_background_grey.copy()
 
         try:
             while cap.isOpened:
-                with lock:
+                # with lock:
                     ret, curr_frame = cap.read()  # get frame and success from video capture
 
                     # exit if failed to get frame
@@ -99,8 +103,9 @@ def run(source=0, anonymize=True, device='cpu', min_area=2000, thresh_val=25, yo
                         im0 = im0.cpu().numpy().astype(np.uint8)
                         im0 = cv2.cvtColor(im0, cv2.COLOR_RGB2BGR)  # reshape image format to (BGR)
 
-                    # Perform background substitution
-                    processed_frame = run_background_sub(init_background_grey, curr_grey_frame, im0)
+                    # Perform background subtraction
+                    processed_frame, static_count = run_background_sub(init_background_grey, curr_grey_frame,
+                                                                       prev_grey_frame, static_count, im0)
                     is_motion = processed_frame.get_is_motion
 
                     if is_motion:
@@ -118,13 +123,10 @@ def run(source=0, anonymize=True, device='cpu', min_area=2000, thresh_val=25, yo
 
                         # Place the model outputs onto an frame
                         processed_frame = yolo_output_plotter(processed_frame.get_processed_frame, names, output_data)
-                    else:
-                        # Assume the first frame has no people. Then,
-                        processed_frame.set_bed_occupied(False)
-                        processed_frame.set_num_detections(0)
 
                     date_time = place_txt_results(processed_frame.get_bed_occupied, is_motion,
-                                                  processed_frame.get_num_detections, processed_frame.get_processed_frame)
+                                                  processed_frame.get_num_detections,
+                                                  processed_frame.get_processed_frame)
 
                     update_df(processed_frame.get_bed_occupied, date_time, df, is_motion,
                               processed_frame.get_num_detections, frame_count, fps)
@@ -145,6 +147,12 @@ def run(source=0, anonymize=True, device='cpu', min_area=2000, thresh_val=25, yo
                     elif not any(is_motion_lst) and not is_motion and out is not None:
                         out.release()
 
+                    # Should we reset the background?
+                    is_person_lst = [f.get_num_detections for f in buffer_lst]
+                    if static_count == fps * 10 and sum(is_person_lst) == 0:
+                        init_background_grey = curr_grey_frame.copy()
+                        static_count = 0
+
                     # Stream the frame
                     flag, encoded_image = cv2.imencode(".jpg", processed_frame.get_processed_frame)
                     if not flag:
@@ -153,20 +161,26 @@ def run(source=0, anonymize=True, device='cpu', min_area=2000, thresh_val=25, yo
                     # update buffer
                     buffered_frames.append(processed_frame)
 
+                    # update the previous frame
+                    prev_grey_frame = curr_grey_frame
+                    print(static_count)
+
                     # FPS calculations
                     end_time = time.time()
                     total_fps += 1 / (end_time - fps_start_time)
                     frame_count += 1
 
-                    time.sleep(0.2 - ((time.monotonic() - starttime) % 0.2))
+                    time.sleep((1 / fps) - ((time.monotonic() - starttime) % (1 / fps)))
 
-                yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + bytearray(encoded_image) + b'\r\n')  # yield some text and the output frame in the byte format
+                # yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + bytearray(
+                #     encoded_image) + b'\r\n')  # yield some text and the output frame in the byte format
 
         except KeyboardInterrupt:
             pass
 
         cap.release()
-        df.to_csv(f"output_videos/{out_video_name}_yolo_sub.csv", index=False)
+        curr_time = datetime.now().strftime("%Y-%m-%d %H-%M-%S")
+        df.to_csv(f"output_videos/{out_video_name}_{curr_time}.csv", index=False)
         print(f"Average FPS: {total_fps / frame_count:.3f}")
 
 
@@ -197,27 +211,34 @@ def place_txt_results(bed_occupied, is_motion, num_detections, processed_frame):
     return dt
 
 
-def run_background_sub(background_grey, curr_grey_frame, curr_color_frame):
+def run_background_sub(background_grey, curr_grey_frame, prev_grey_frame, static_count, curr_color_frame):
     """
     Returns a frame with the background subtraction completed and labeled, the current grey frame to serve as the new
     background, and the updated static counter.
-    1) initializes background if it is the first frame
-    2) computes difference in frames
-    3) thresholding to filter areas with significant change in pixel values
-    4) highlights the areas with motion in white
+    1) computes difference in the frame from the original background and previous frame
+    2) thresholding to filter areas with significant change in pixel values
+    3) highlights the areas with motion in white
     """
     is_motion = False
+    prev_diff = False
 
     # compute the  difference
     frame_delta = cv2.absdiff(background_grey, curr_grey_frame)
+    prev_delta = cv2.absdiff(prev_grey_frame, curr_grey_frame)
 
     # pixels are either 0 or 255.
     thresh = cv2.threshold(frame_delta, opt.thresh_val, 255, cv2.THRESH_BINARY)[1]
+    prev_thresh = cv2.threshold(prev_delta, opt.thresh_val, 255, cv2.THRESH_BINARY)[1]
 
-    # find the outlines of the white parts
+    # find the outlines of the white parts from background
     thresh = cv2.dilate(thresh, None, iterations=3)  # size of foreground increases
     curr_contours = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     curr_contours = imutils.grab_contours(curr_contours)
+
+    # find outlines from previous frame
+    prev_thresh = cv2.dilate(prev_thresh, None, iterations=2)
+    prev_contours = cv2.findContours(prev_thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    prev_contours = imutils.grab_contours(prev_contours)
 
     for c in curr_contours:
         # Only care about contour if it's larger than the min
@@ -225,12 +246,21 @@ def run_background_sub(background_grey, curr_grey_frame, curr_color_frame):
             is_motion = True
             break
 
+    for c in prev_contours:
+        if cv2.contourArea(c) >= opt.min_area:
+            prev_diff = True
+            static_count = 0
+            break
+
+    if not prev_diff:
+        static_count += 1
+
     thresh_color = cv2.cvtColor(thresh, cv2.COLOR_GRAY2RGB)
     overlay = cv2.addWeighted(curr_color_frame, 0.75, thresh_color, 0.25, 0)
 
     overlay = frame.ProcessedFrame(overlay, is_motion)
 
-    return overlay
+    return overlay, static_count
 
 
 def yolo_output_plotter(background, names, output_data):
@@ -256,30 +286,32 @@ def yolo_output_plotter(background, names, output_data):
                     names[c] if opt.hide_conf else f'{names[c]} {conf:.2f}')
 
                 bed_occupied = plot_one_box_kpt(xyxy, background, label=label, color=colors(c, True),
-                                 line_thickness=opt.line_thickness, kpt_label=True, kpts=keypoints, steps=3,
-                                 orig_shape=background.shape[:2])
+                                                line_thickness=opt.line_thickness, kpt_label=True, kpts=keypoints,
+                                                steps=3,
+                                                orig_shape=background.shape[:2])
 
     processed_frame = frame.ProcessedFrame(background, True, n, bed_occupied)
 
     return processed_frame
 
-
-@app.route("/") # Decorator that routes you to a specific URL: in this case just /.
-def index():
-    """
-    Function to render the index.html template and serve up the output video stream
-    """
-    return render_template("index.html")
-
-
-@app.route("/video_feed")
-def video_feed():
-    """
-    Function to use the flask function Response
-    """
-    return Response(main(opt), mimetype="multipart/x-mixed-replace; boundary=frame")
-    #MIME type a.k.a. media type: indicates the nature and format of a document, file, or assortment of bytes. MIME types are defined and standardized in IETF's RFC6838.
-
+#
+# @app.route("/")  # Decorator that routes you to a specific URL: in this case just /.
+# def index():
+#     """
+#     Function to render the index.html template and serve up the output video stream
+#     """
+#     return render_template("index.html")
+#
+#
+# @app.route("/video_feed")
+# def video_feed():
+#     """
+#     Function to use the flask function Response.
+#     MIME type a.k.a. media type: indicates the nature and format of a document, file, or assortment of bytes. MIME
+#     types are defined and standardized in IETF's RFC6838.
+#     """
+#     return Response(main(opt), mimetype="multipart/x-mixed-replace; boundary=frame")
+#
 
 def parse_opt():
     parser = argparse.ArgumentParser()
@@ -316,9 +348,9 @@ if __name__ == "__main__":
     main(opt)
 
     # start a thread that will perform motion detection
-    t = threading.Thread(target = main(opt))
+    t = threading.Thread(target=main(opt))
     t.daemon = True
     t.start()
 
     # start the flask app
-    app.run(host='10.42.0.1', port=opt.port, debug=True, threaded=True, use_reloader=False)
+    # app.run(host='10.42.0.1', port=opt.port, debug=True, threaded=True, use_reloader=False)
