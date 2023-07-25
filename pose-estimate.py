@@ -4,8 +4,6 @@ import time
 from datetime import datetime
 import pandas as pd
 import threading
-import flask
-from flask import Response, Flask, render_template
 
 import cv2
 import imutils
@@ -62,8 +60,8 @@ def run(ip, port, source=0, anonymize=True, device='cpu', min_area=2000, thresh_
         starttime = time.monotonic()
 
         # Extract resizing details based of first frame
-        first_frame_init = letterbox(cap.read()[1], stride=64, auto=True)[0]
-        resize_height, resize_width = first_frame_init.shape[:2]
+        init_background = letterbox(cap.read()[1], stride=64, auto=True)[0]
+        resize_height, resize_width = init_background.shape[:2]
 
         # Initialize video writer
         out = None
@@ -76,7 +74,7 @@ def run(ip, port, source=0, anonymize=True, device='cpu', min_area=2000, thresh_
         static_count = 0
 
         # Initialize background subtraction by storing first frame to compare
-        init_background_grey = background_sub_frame_prep(first_frame_init)
+        init_background_grey = background_sub_frame_prep(init_background)
         prev_grey_frame = init_background_grey.copy()
 
         try:
@@ -96,7 +94,7 @@ def run(ip, port, source=0, anonymize=True, device='cpu', min_area=2000, thresh_
                     curr_frame = yolo_frame_prep(device, curr_frame)
 
                     if anonymize:
-                        im0 = first_frame_init.copy()
+                        im0 = init_background.copy()
                     else:
                         # The background will be the current frame
                         im0 = curr_frame[0].permute(1, 2, 0) * 255  # Change format [b, c, h, w] to [h, w, c]
@@ -150,7 +148,7 @@ def run(ip, port, source=0, anonymize=True, device='cpu', min_area=2000, thresh_
                     # Should we reset the background?
                     is_person_lst = [f.get_num_detections for f in buffer_lst]
                     if static_count == fps * 10 and sum(is_person_lst) == 0:
-                        init_background_grey = curr_grey_frame.copy()
+                        init_background = curr_frame.copy()
                         static_count = 0
 
                     # Stream the frame
@@ -163,7 +161,6 @@ def run(ip, port, source=0, anonymize=True, device='cpu', min_area=2000, thresh_
 
                     # update the previous frame
                     prev_grey_frame = curr_grey_frame
-                    print(static_count)
 
                     # FPS calculations
                     end_time = time.time()
