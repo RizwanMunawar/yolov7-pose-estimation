@@ -80,7 +80,7 @@ def run(ip, port, source=0, anonymize=True, device='cpu', min_area=2000, thresh_
         try:
             while cap.isOpened:
                 # with lock:
-                    ret, curr_frame = cap.read()  # get frame and success from video capture
+                    ret, cap_frame = cap.read()  # get frame and success from video capture
 
                     # exit if failed to get frame
                     if not ret:
@@ -90,8 +90,8 @@ def run(ip, port, source=0, anonymize=True, device='cpu', min_area=2000, thresh_
                     fps_start_time = time.time()  # start time for fps calculation
 
                     # Background subtraction and YOLO frame prep
-                    curr_grey_frame = background_sub_frame_prep(curr_frame)
-                    curr_frame = yolo_frame_prep(device, curr_frame)
+                    curr_grey_frame = background_sub_frame_prep(cap_frame)
+                    curr_frame = yolo_frame_prep(device, cap_frame)
 
                     if anonymize:
                         im0 = init_background.copy()
@@ -148,7 +148,8 @@ def run(ip, port, source=0, anonymize=True, device='cpu', min_area=2000, thresh_
                     # Should we reset the background?
                     is_person_lst = [f.get_num_detections for f in buffer_lst]
                     if static_count == fps * 10 and sum(is_person_lst) == 0:
-                        init_background = curr_frame.copy()
+                        init_background = letterbox(cap_frame, stride=64, auto=True)[0]
+                        init_background_grey = background_sub_frame_prep(init_background)
                         static_count = 0
 
                     # Stream the frame
@@ -177,7 +178,7 @@ def run(ip, port, source=0, anonymize=True, device='cpu', min_area=2000, thresh_
 
         cap.release()
         curr_time = datetime.now().strftime("%Y-%m-%d %H-%M-%S")
-        df.to_csv(f"output_videos/{out_video_name}_{curr_time}.csv", index=False)
+        df.to_csv(f"output_videos/{curr_time}.csv", index=False)
         print(f"Average FPS: {total_fps / frame_count:.3f}")
 
 
