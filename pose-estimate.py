@@ -43,14 +43,12 @@ def run(ip, port, source=0, anonymize=True, device='cpu', min_area=2000, thresh_
     if source.isnumeric():
         cap = cv2.VideoCapture(int(source))
         time.sleep(5.0)  # Wait for camera to turn on
-        global lock
     else:
         cap = cv2.VideoCapture(source)
 
     if not cap.isOpened():  # check if videocapture not opened
         print('Error while trying to read video. Please check path again')
         raise SystemExit()
-
     else:
         # initiate dataframe
         df = pd.DataFrame(columns=['date', 'time', 'motion', 'yolo_detections', 'bed_occupied'])
@@ -79,6 +77,8 @@ def run(ip, port, source=0, anonymize=True, device='cpu', min_area=2000, thresh_
         # Initialize background subtraction by storing first frame to compare
         init_background_grey = background_sub_frame_prep(init_background)
         prev_grey_frame = init_background_grey.copy()
+
+        global lock
 
         try:
             while cap.isOpened:
