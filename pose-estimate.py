@@ -56,7 +56,7 @@ def run(ip, port, source=0, anonymize=True, device='cpu', min_area=2000, thresh_
         frame_count = 0
         total_fps = 0
         # fps = int(cap.get(cv2.CAP_PROP_FPS))
-        fps = 4
+        fps = 5
         starttime = time.monotonic()
 
         # Extract resizing details based of first frame
