@@ -14,3 +14,8 @@ yolov7-w6-pose.pt
 # Jetson specifc package installation stuff
 torchvision
 *.whl
+
+# Byte-complied / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class

@@ -1,31 +1,30 @@
 # Usage: pip install -r requirements-jetson.txt
-# This is for Jetson devices. You must install PyTorch and TorchVision separately according to the following
-# instructions: https://forums.developer.nvidia.com/t/pytorch-for-jetson/72048
+# This is for Jetson devices
+# YOU MUST INSTALL PyTorch AND TorchVision SEPERATELY https://forums.developer.nvidia.com/t/pytorch-for-jetson/72048
 
+blinker==1.6.2
 certifi==2023.5.7
-charset-normalizer==3.1.0
+charset-normalizer==3.2.0
+click==8.1.6
 contourpy==1.1.0
 cycler==0.11.0
-Cython==0.29.35
-docopt==0.6.2
-filelock==3.12.2
-fonttools==4.40.0
+Cython==3.0.0
+Flask==2.3.2
+fonttools==4.41.0
 idna==3.4
-importlib-resources==5.12.0
+importlib-metadata==6.8.0
+importlib-resources==6.0.0
 imutils==0.5.4
+itsdangerous==2.1.2
 Jinja2==3.1.2
 kiwisolver==1.4.4
 MarkupSafe==2.1.3
 matplotlib==3.7.1
-mpmath==1.3.0
-networkx==3.1
 numpy==1.24.4
 opencv-python==4.8.0.74
 packaging==23.1
 pandas==2.0.2
 Pillow==6.2.2
-pkg_resources==0.0.0
-protobuf==4.23.3
 pyparsing==3.1.0
 python-dateutil==2.8.2
 pytz==2023.3
@@ -34,10 +33,11 @@ requests==2.31.0
 scipy==1.10.1
 seaborn==0.12.2
 six==1.16.0
-sympy==1.12
+# torch==1.11.0
+# torchvision==0.12.0
 tqdm==4.65.0
-typing_extensions==4.7.0
+typing-extensions==4.7.1
 tzdata==2023.3
-urllib3==2.0.3
-yarg==0.1.9
+urllib3==2.0.4
+Werkzeug==2.3.6
 zipp==3.15.0
