@@ -43,6 +43,7 @@ def run(ip, port, source=0, anonymize=True, device='cpu', min_area=2000, thresh_
     if source.isnumeric():
         cap = cv2.VideoCapture(int(source))
         time.sleep(5.0)  # Wait for camera to turn on
+        global lock
     else:
         cap = cv2.VideoCapture(source)
 
