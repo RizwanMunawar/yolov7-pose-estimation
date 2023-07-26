@@ -4,6 +4,8 @@ import time
 from datetime import datetime
 import pandas as pd
 import threading
+import flask
+from flask import Response, Flask, render_template
 
 import cv2
 import imutils
@@ -19,8 +21,8 @@ from utils.plots import colors, plot_one_box_kpt
 from utils.torch_utils import select_device
 
 # Initialize streaming
-# lock = threading.Lock()
-# app = Flask(__name__)
+lock = threading.Lock()
+app = Flask(__name__)
 
 
 @torch.no_grad()
@@ -79,7 +81,7 @@ def run(ip, port, source=0, anonymize=True, device='cpu', min_area=2000, thresh_
 
         try:
             while cap.isOpened:
-                # with lock:
+                with lock:
                     ret, cap_frame = cap.read()  # get frame and success from video capture
 
                     # exit if failed to get frame
@@ -120,11 +122,11 @@ def run(ip, port, source=0, anonymize=True, device='cpu', min_area=2000, thresh_
                                                               kpt_label=True)
 
                         # Place the model outputs onto an frame
-                        processed_frame = yolo_output_plotter(processed_frame.get_processed_frame, names, output_data)
+                        processed_frame = yolo_output_plotter(processed_frame.get_frame, names, output_data)
 
                     date_time = place_txt_results(processed_frame.get_bed_occupied, is_motion,
                                                   processed_frame.get_num_detections,
-                                                  processed_frame.get_processed_frame)
+                                                  processed_frame.get_frame)
 
                     update_df(processed_frame.get_bed_occupied, date_time, df, is_motion,
                               processed_frame.get_num_detections, frame_count, fps)
@@ -138,10 +140,10 @@ def run(ip, port, source=0, anonymize=True, device='cpu', min_area=2000, thresh_
                         out = cv2.VideoWriter(f"output_videos/{out_video_name}_{curr_time}.mp4",
                                               cv2.VideoWriter_fourcc(*'mp4v'), fps, (resize_width, resize_height))
                         for f in buffer_lst:
-                            out.write(f.get_processed_frame)
-                        out.write(processed_frame.get_processed_frame)
+                            out.write(f.get_frame)
+                        out.write(processed_frame.get_frame)
                     elif any(is_motion_lst) and out is not None:
-                        out.write(processed_frame.get_processed_frame)
+                        out.write(processed_frame.get_frame)
                     elif not any(is_motion_lst) and not is_motion and out is not None:
                         out.release()
 
@@ -153,7 +155,7 @@ def run(ip, port, source=0, anonymize=True, device='cpu', min_area=2000, thresh_
                         static_count = 0
 
                     # Stream the frame
-                    flag, encoded_image = cv2.imencode(".jpg", processed_frame.get_processed_frame)
+                    flag, encoded_image = cv2.imencode(".jpg", processed_frame.get_frame)
                     if not flag:
                         continue
 
@@ -170,8 +172,8 @@ def run(ip, port, source=0, anonymize=True, device='cpu', min_area=2000, thresh_
 
                     time.sleep((1 / fps) - ((time.monotonic() - starttime) % (1 / fps)))
 
-                # yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + bytearray(
-                #     encoded_image) + b'\r\n')  # yield some text and the output frame in the byte format
+                yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + bytearray(
+                    encoded_image) + b'\r\n')  # yield some text and the output frame in the byte format
 
         except KeyboardInterrupt:
             pass
@@ -292,24 +294,24 @@ def yolo_output_plotter(background, names, output_data):
 
     return processed_frame
 
-#
-# @app.route("/")  # Decorator that routes you to a specific URL: in this case just /.
-# def index():
-#     """
-#     Function to render the index.html template and serve up the output video stream
-#     """
-#     return render_template("index.html")
-#
-#
-# @app.route("/video_feed")
-# def video_feed():
-#     """
-#     Function to use the flask function Response.
-#     MIME type a.k.a. media type: indicates the nature and format of a document, file, or assortment of bytes. MIME
-#     types are defined and standardized in IETF's RFC6838.
-#     """
-#     return Response(main(opt), mimetype="multipart/x-mixed-replace; boundary=frame")
-#
+
+@app.route("/")  # Decorator that routes you to a specific URL: in this case just /.
+def index():
+    """
+    Function to render the index.html template and serve up the output video stream
+    """
+    return render_template("index.html")
+
+
+@app.route("/video_feed")
+def video_feed():
+    """
+    Function to use the flask function Response.
+    MIME type a.k.a. media type: indicates the nature and format of a document, file, or assortment of bytes. MIME
+    types are defined and standardized in IETF's RFC6838.
+    """
+    return Response(main(opt), mimetype="multipart/x-mixed-replace; boundary=frame")
+
 
 def parse_opt():
     parser = argparse.ArgumentParser()
@@ -351,4 +353,4 @@ if __name__ == "__main__":
     t.start()
 
     # start the flask app
-    # app.run(host='10.42.0.1', port=opt.port, debug=True, threaded=True, use_reloader=False)
+    app.run(host='10.42.0.1', port=opt.port, debug=True, threaded=True, use_reloader=False)

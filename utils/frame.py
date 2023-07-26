@@ -32,7 +32,7 @@ class ProcessedFrame:
         self.bed_occupied = bed_occupied
 
     @property
-    def get_processed_frame(self):
+    def get_frame(self):
         return self.processed_frame
 
     @property
