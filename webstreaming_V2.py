@@ -253,11 +253,10 @@ def yolo_output_plotter(background, names, output_data):
                     reversed(pose[:, :6])):  # loop over poses for drawing on frame
                 c = int(cls)  # integer class
                 keypoints = pose[det_index, 6:]
-                label = None if opt.hide_labels else (
-                    names[c] if opt.hide_conf else f'{names[c]} {conf:.2f}')
+                label = f'{names[c]} {conf:.2f}'
 
                 bed_occupied = plot_one_box_kpt(xyxy, background, label=label, color=colors(c, True),
-                                                line_thickness=opt.line_thickness, kpt_label=True, kpts=keypoints,
+                                                line_thickness=3, kpt_label=True, kpts=keypoints,
                                                 steps=3,
                                                 orig_shape=background.shape[:2])
 
