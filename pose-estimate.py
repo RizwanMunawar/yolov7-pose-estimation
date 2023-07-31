@@ -342,7 +342,7 @@ if __name__ == "__main__":
     strip_optimizer(opt.device)
 
     # start a thread that will perform motion detection
-    t = threading.Thread(target=main(opt))
+    t = threading.Thread(target=main, args=[opt])
     t.daemon = True
     t.start()
 

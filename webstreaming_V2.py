@@ -23,17 +23,20 @@ from utils.torch_utils import select_device
 """
 Performing some initializations
 """
-lock = threading.Lock() # to prevent race condition; in this case, it ensures that one thread isn't trying to read the frame as it is being updated.
-app = Flask(__name__) # initialize a flask object
-camera = cv2.VideoCapture(0) # so that we can use the webcam
-time.sleep(5.0) # wait for the camera to warm up. Changed to 5 seconds as it looks like it takes a while for the camera to turn on.
+lock = threading.Lock()  # to prevent race condition; in this case, it ensures that one thread isn't trying to read the frame as it is being updated.
+app = Flask(__name__)  # initialize a flask object
+cap = cv2.VideoCapture(0)  # so that we can use the webcam
+time.sleep(5.0)  # wait for the camera to warm up. Changed to 5 seconds as it looks like it takes a while for the camera to turn on.
 
 """
 Function to render the index.html template and serve up the output video stream
 """
-@app.route("/") # Decorator that routes you to a specific URL: in this case just /.
+
+
+@app.route("/")  # Decorator that routes you to a specific URL: in this case just /.
 def index():
     return render_template("index.html")
+
 
 """
 Function to return a frame
@@ -42,47 +45,73 @@ Function to return a frame
 So, depending on whether your model does things frame by frame, maybe we can just add a step in between where we feed the current frame into your model, get an output frame, 
 and then transform that output frame into byte format?
 """
-def return_frame():
+
+
+def return_frame(anonymize=True, device='cpu', min_area=2000, thresh_val=25, yolo_conf=0.4):
     # grab global references to the video stream, output frame, and lock variables.
-    global camera, lock
+    global cap, lock
 
     while True:
-        with lock: # wait until the lock is acquired. We need to acquire the lock to ensure the frame variable is not accidentally being read by a client while we are trying to update it.
-            success, frame = camera.read() # read the camera frame
+        with lock:  # wait until the lock is acquired. We need to acquire the lock to ensure the frame variable is not accidentally being read by a client while we are trying to update it.
+            success, frame = cap.read()  # read the camera frame
             if not success:
                 break
             else:
-                yolo_prep = yolo_frame_prep(0, frame)
-                (flag, encodedImage) = cv2.imencode(".jpg", yolo_prep) # encode the frame in JPEG format
-                if not flag: # ensure the frame was successfully encoded
+                stream_img = background_sub_frame_prep(frame)
+                (flag, encodedImage) = cv2.imencode(".jpg", stream_img)  # encode the frame in JPEG format
+                if not flag:  # ensure the frame was successfully encoded
                     continue
 
-        yield(b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + bytearray(encodedImage) + b'\r\n') # yield some text and the output frame in the byte format
+        yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + bytearray(
+            encodedImage) + b'\r\n')  # yield some text and the output frame in the byte format
+
 
 """
 Function to use the flask function Response
 """
+
+
 @app.route("/video_feed")
 def video_feed():
-    return Response(return_frame(), mimetype="multipart/x-mixed-replace; boundary=frame") #MIME type a.k.a. media type: indicates the nature and format of a document, file, or assortment of bytes. MIME types are defined and standardized in IETF's RFC6838. 
+    return Response(return_frame(),
+                    mimetype="multipart/x-mixed-replace; boundary=frame")  # MIME type a.k.a. media type: indicates the nature and format of a document, file, or assortment of bytes. MIME types are defined and standardized in IETF's RFC6838.
 
-"""
-Handle parsing commmand line arguments and launch the Flask app
-"""
+
+def parse_opt():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--anonymize', action='store_true',
+                        help="anonymize by return video with first frame as background")
+    parser.add_argument('--device', type=str, default='cpu', help='cpu/0,1,2,3(gpu)')  # device arguments
+    parser.add_argument('--min-area', default=2000, type=int,
+                        help='define min area in pixels that counts as motion')
+    parser.add_argument('--thresh-val', default=40, type=int,
+                        help='define threshold value for difference in pixels for background subtraction')
+    parser.add_argument('--yolo-conf', default=0.4, type=float,
+                        help='define min confidence level for YOLO model')
+    parser.add_argument("--ip", type=str, required=True, help="ip address of the device")
+    parser.add_argument("--port", type=int, required=True, help="ephemeral port number of the server (1024 to 65535)")
+    opt = parser.parse_args()
+    return opt
+
+
+# main function
+def main(options):
+    return_frame(**vars(options))
+
+
 if __name__ == '__main__':
-    ap = argparse.ArgumentParser()
-    ap.add_argument("-i", "--ip", type=str, required=True, help="ip address of the device")
-    ap.add_argument("-o", "--port", type=int, required=True, help="ephemeral port number of the server (1024 to 65535)")
-    args=vars(ap.parse_args())
+    opt = parse_opt()
+    strip_optimizer(opt.device)
 
     # start a thread that will perform motion detection
-    t = threading.Thread(target=return_frame)
+    t = threading.Thread(target=main, args=[opt.anonymize, opt.device, opt.min_area, opt.tresh_val, opt.yolo_conf])
     t.daemon = True
     t.start()
 
     # start the flask app
-    app.run(host='10.42.0.1', port=args["port"], debug=True, threaded=True, use_reloader=False) # Find the IP address of the Jetson device manually, then replace host=... with that ip address
+    app.run(host='10.42.0.1', port=opt.port, debug=True, threaded=True,
+            use_reloader=False)  # Find the IP address of the Jetson device manually, then replace host=... with that ip address
     # to find the ip address, use the ifconfig command. Under wlan, the ip address is listed after the "inet" field.
 
-camera.release() # Before ending the script release the camera.
+cap.release()
 print("End of script.")
