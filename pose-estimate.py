@@ -41,6 +41,8 @@ def run(ip, port, anonymize=True, device='cpu', min_area=2000, thresh_val=25, yo
     _ = model.eval()
     names = model.module.names if hasattr(model, 'module') else model.names
 
+    global cap, lock
+
     if not cap.isOpened():  # check if videocapture not opened
         print('Error while trying to read video. Please check path again')
         raise SystemExit()
@@ -78,10 +80,10 @@ def run(ip, port, anonymize=True, device='cpu', min_area=2000, thresh_val=25, yo
         try:
             while cap.isOpened:
                 with lock:
-                    ret, cap_frame = cap.read()  # get frame and success from video capture
+                    success, cap_frame = cap.read()  # get frame and success from video capture
 
                     # exit if failed to get frame
-                    if not ret:
+                    if not success:
                         break
 
                     print("Frame {} Processing".format(frame_count + 1))
@@ -343,7 +345,7 @@ if __name__ == "__main__":
     main(opt)
 
     # start a thread that will perform motion detection
-    t = threading.Thread(target=main(opt))
+    t = threading.Thread(target=run)
     t.daemon = True
     t.start()
 
