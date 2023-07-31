@@ -75,8 +75,6 @@ def run(ip, port, anonymize=True, device='cpu', min_area=2000, thresh_val=25, yo
         init_background_grey = background_sub_frame_prep(init_background)
         prev_grey_frame = init_background_grey.copy()
 
-        global lock
-
         try:
             while cap.isOpened:
                 with lock:
@@ -342,12 +340,13 @@ def main(options):
 if __name__ == "__main__":
     opt = parse_opt()
     strip_optimizer(opt.device)
-    main(opt)
 
     # start a thread that will perform motion detection
-    t = threading.Thread(target=run)
+    t = threading.Thread(target=main(opt))
     t.daemon = True
     t.start()
 
     # start the flask app
     app.run(host='10.42.0.1', port=opt.port, debug=True, threaded=True, use_reloader=False)
+
+cap.release()
