@@ -23,10 +23,12 @@ from utils.torch_utils import select_device
 # Initialize streaming
 lock = threading.Lock()
 app = Flask(__name__)
+cap = cv2.VideoCapture(0)
+time.sleep(5.0)
 
 
 @torch.no_grad()
-def run(ip, port, source=0, anonymize=True, device='cpu', min_area=2000, thresh_val=25, yolo_conf=0.4,
+def run(ip, port, anonymize=True, device='cpu', min_area=2000, thresh_val=25, yolo_conf=0.4,
         save_conf=False, line_thickness=3, hide_labels=False, hide_conf=True):
     """
     Saves mp4 result of YOLOv7 pose model and background subtraction. Main function that reads the input video
@@ -38,13 +40,6 @@ def run(ip, port, source=0, anonymize=True, device='cpu', min_area=2000, thresh_
     model = attempt_load("yolov7-w6-pose.pt", map_location=device)
     _ = model.eval()
     names = model.module.names if hasattr(model, 'module') else model.names
-
-    # Check if source is webcam/camera or video file
-    if source.isnumeric():
-        cap = cv2.VideoCapture(int(source))
-        time.sleep(5.0)  # Wait for camera to turn on
-    else:
-        cap = cv2.VideoCapture(source)
 
     if not cap.isOpened():  # check if videocapture not opened
         print('Error while trying to read video. Please check path again')
