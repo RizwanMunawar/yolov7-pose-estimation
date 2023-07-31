@@ -112,6 +112,29 @@ def return_frame(anonymize=True, device='cpu', min_area=2000, thresh_val=25, yol
                                                                    prev_grey_frame, static_count, im0)
             is_motion = processed_frame.get_is_motion
 
+            if is_motion:
+                # Perform YOLO. Get predictions using model
+                with torch.no_grad():
+                    output_data, _ = model(curr_frame)
+
+                # Specifying model parameters using non max suppression
+                output_data = non_max_suppression_kpt(output_data,
+                                                      opt.yolo_conf,  # Conf. Threshold.
+                                                      0.4,  # IoU Threshold.
+                                                      nc=model.yaml['nc'],  # Number of classes.
+                                                      nkpt=model.yaml['nkpt'],  # Number of keypoints.
+                                                      kpt_label=True)
+
+                # Place the model outputs onto an frame
+                processed_frame = yolo_output_plotter(processed_frame.get_frame, names, output_data)
+
+            date_time = place_txt_results(processed_frame.get_bed_occupied, is_motion,
+                                          processed_frame.get_num_detections,
+                                          processed_frame.get_frame)
+
+            update_df(processed_frame.get_bed_occupied, date_time, df, is_motion,
+                      processed_frame.get_num_detections, frame_count, fps)
+
             (flag, encodedImage) = cv2.imencode(".jpg", processed_frame.get_frame)  # encode the frame in JPEG format
             if not flag:  # ensure the frame was successfully encoded
                 continue
@@ -125,6 +148,11 @@ def return_frame(anonymize=True, device='cpu', min_area=2000, thresh_val=25, yol
 
         yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + bytearray(
             encodedImage) + b'\r\n')  # yield some text and the output frame in the byte format
+
+    cap.release()
+    curr_time = datetime.now().strftime("%Y-%m-%d %H-%M-%S")
+    df.to_csv(f"output_videos/{curr_time}.csv", index=False)
+    print(f"Average FPS: {total_fps / frame_count:.3f}")
 
 
 def update_df(bed_occupied, date_time, df, is_motion, num_detections, frame_count, fps):
