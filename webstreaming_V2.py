@@ -107,14 +107,21 @@ def return_frame(anonymize=True, device='cpu', min_area=2000, thresh_val=25, yol
                 im0 = im0.cpu().numpy().astype(np.uint8)
                 im0 = cv2.cvtColor(im0, cv2.COLOR_RGB2BGR)  # reshape image format to (BGR)
 
-                # Perform background subtraction
-                processed_frame, static_count = run_background_sub(init_background_grey, curr_grey_frame,
+            # Perform background subtraction
+            processed_frame, static_count = run_background_sub(init_background_grey, curr_grey_frame,
                                                                    prev_grey_frame, static_count, im0)
-                is_motion = processed_frame.get_is_motion
+            is_motion = processed_frame.get_is_motion
 
-            (flag, encodedImage) = cv2.imencode(".jpg", curr_grey_frame)  # encode the frame in JPEG format
+            (flag, encodedImage) = cv2.imencode(".jpg", processed_frame.get_frame)  # encode the frame in JPEG format
             if not flag:  # ensure the frame was successfully encoded
                 continue
+
+            # FPS calculations
+            end_time = time.time()
+            total_fps += 1 / (end_time - fps_start_time)
+            frame_count += 1
+
+            time.sleep((1 / fps) - ((time.monotonic() - starttime) % (1 / fps)))
 
         yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + bytearray(
             encodedImage) + b'\r\n')  # yield some text and the output frame in the byte format
