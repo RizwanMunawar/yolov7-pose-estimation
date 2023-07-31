@@ -132,8 +132,7 @@ def run(ip, port, anonymize=True, device='cpu', min_area=2000, thresh_val=25, yo
                     is_motion_lst = [f.get_is_motion for f in buffer_lst]
                     if not any(is_motion_lst) and is_motion:
                         curr_time = datetime.now().strftime("%Y-%m-%d %H-%M-%S")
-                        out_video_name = f"{source.split('/')[-1].split('.')[0]}"
-                        out = cv2.VideoWriter(f"output_videos/{out_video_name}_{curr_time}.mp4",
+                        out = cv2.VideoWriter(f"output_videos/{curr_time}.mp4",
                                               cv2.VideoWriter_fourcc(*'mp4v'), fps, (resize_width, resize_height))
                         for f in buffer_lst:
                             out.write(f.get_frame)
