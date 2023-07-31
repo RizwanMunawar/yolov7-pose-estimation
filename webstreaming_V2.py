@@ -135,9 +135,27 @@ def return_frame(anonymize=True, device='cpu', min_area=2000, thresh_val=25, yol
             update_df(processed_frame.get_bed_occupied, date_time, df, is_motion,
                       processed_frame.get_num_detections, frame_count, fps)
 
+            # Figure out how to save the frame based off buffer
+            buffer_lst = list(buffered_frames)
+            is_motion_lst = [f.get_is_motion for f in buffer_lst]
+            if not any(is_motion_lst) and is_motion:
+                curr_time = datetime.now().strftime("%Y-%m-%d %H-%M-%S")
+                out = cv2.VideoWriter(f"output_videos/{curr_time}.mp4",
+                                      cv2.VideoWriter_fourcc(*'mp4v'), fps, (resize_width, resize_height))
+                for f in buffer_lst:
+                    out.write(f.get_frame)
+                out.write(processed_frame.get_frame)
+            elif any(is_motion_lst) and out is not None:
+                out.write(processed_frame.get_frame)
+            elif not any(is_motion_lst) and not is_motion and out is not None:
+                out.release()
+
             (flag, encodedImage) = cv2.imencode(".jpg", processed_frame.get_frame)  # encode the frame in JPEG format
             if not flag:  # ensure the frame was successfully encoded
                 continue
+
+            # update buffer
+            buffered_frames.append(processed_frame)
 
             # FPS calculations
             end_time = time.time()
@@ -306,6 +324,7 @@ if __name__ == '__main__':
     t = threading.Thread(target=return_frame, args=[opt.anonymize, opt.device, opt.min_area, opt.thresh_val, opt.yolo_conf])
     t.daemon = True
     t.start()
+    t.join()
 
     # start the flask app
     app.run(host='10.42.0.1', port=opt.port, debug=True, threaded=True,
