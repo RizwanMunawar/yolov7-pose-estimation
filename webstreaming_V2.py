@@ -49,9 +49,44 @@ and then transform that output frame into byte format?
 
 def return_frame(anonymize=True, device='cpu', min_area=2000, thresh_val=25, yolo_conf=0.4):
     # grab global references to the video stream, output frame, and lock variables.
+    device = select_device(opt.device)
+
+    # Load model and get class names
+    model = attempt_load("yolov7-w6-pose.pt", map_location=device)
+    _ = model.eval()
+    names = model.module.names if hasattr(model, 'module') else model.names
+
     global cap, lock
 
-    while True:
+    # initiate dataframe
+    df = pd.DataFrame(columns=['date', 'time', 'motion', 'yolo_detections', 'bed_occupied'])
+
+    # Frame calculations
+    frame_count = 0
+    total_fps = 0
+    # fps = int(cap.get(cv2.CAP_PROP_FPS))
+    fps = 5
+    starttime = time.monotonic()
+
+    # Extract resizing details based of first frame
+    init_background = letterbox(cap.read()[1], stride=64, auto=True)[0]
+    resize_height, resize_width = init_background.shape[:2]
+
+    # Initialize video writer
+    out = None
+
+    # Initialize video buffer for when there is no motion
+    buffer_seconds = 3
+    buffered_frames = collections.deque([], (fps * buffer_seconds))
+
+    # Initialize counter for duration since last change
+    static_count = 0
+
+    # Initialize background subtraction by storing first frame to compare
+    init_background_grey = background_sub_frame_prep(init_background)
+    prev_grey_frame = init_background_grey.copy()
+
+    while cap.isOpened:
         with lock:  # wait until the lock is acquired. We need to acquire the lock to ensure the frame variable is not accidentally being read by a client while we are trying to update it.
             success, frame = cap.read()  # read the camera frame
             if not success:
@@ -104,7 +139,7 @@ if __name__ == '__main__':
     strip_optimizer(opt.device)
 
     # start a thread that will perform motion detection
-    t = threading.Thread(target=main, args=[opt.anonymize, opt.device, opt.min_area, opt.tresh_val, opt.yolo_conf])
+    t = threading.Thread(target=return_frame, args=[opt.anonymize, opt.device, opt.min_area, opt.thresh_val, opt.yolo_conf])
     t.daemon = True
     t.start()
 
