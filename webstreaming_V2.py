@@ -28,24 +28,6 @@ app = Flask(__name__)  # initialize a flask object
 cap = cv2.VideoCapture(0)  # so that we can use the webcam
 time.sleep(5.0)  # wait for the camera to warm up. Changed to 5 seconds as it looks like it takes a while for the camera to turn on.
 
-"""
-Function to render the index.html template and serve up the output video stream
-"""
-
-
-@app.route("/")  # Decorator that routes you to a specific URL: in this case just /.
-def index():
-    return render_template("index.html")
-
-
-"""
-Function to return a frame
-
-@Alex: I was thinking we can run your model in here, as all this function is doing right now is reading in a frame from the camera, then transforming the output to byte format.
-So, depending on whether your model does things frame by frame, maybe we can just add a step in between where we feed the current frame into your model, get an output frame, 
-and then transform that output frame into byte format?
-"""
-
 
 def return_frame(anonymize=True, device='cpu', min_area=2000, thresh_val=25, yolo_conf=0.4):
     # grab global references to the video stream, output frame, and lock variables.
@@ -58,6 +40,10 @@ def return_frame(anonymize=True, device='cpu', min_area=2000, thresh_val=25, yol
 
     global cap, lock
 
+    if not cap.isOpened():  # check if videocapture not opened
+        print('Error while trying to read video. Please check path again')
+        raise SystemExit()
+
     # initiate dataframe
     df = pd.DataFrame(columns=['date', 'time', 'motion', 'yolo_detections', 'bed_occupied'])
 
@@ -65,8 +51,8 @@ def return_frame(anonymize=True, device='cpu', min_area=2000, thresh_val=25, yol
     frame_count = 0
     total_fps = 0
     # fps = int(cap.get(cv2.CAP_PROP_FPS))
-    fps = 5
-    starttime = time.monotonic()
+    fps = 3
+    start_time = time.monotonic()
 
     # Extract resizing details based of first frame
     init_background = letterbox(cap.read()[1], stride=64, auto=True)[0]
@@ -86,8 +72,8 @@ def return_frame(anonymize=True, device='cpu', min_area=2000, thresh_val=25, yol
     init_background_grey = background_sub_frame_prep(init_background)
     prev_grey_frame = init_background_grey.copy()
 
-    while cap.isOpened:
-        try:
+    try:
+        while cap.isOpened:
             with lock:  # wait until the lock is acquired. We need to acquire the lock to ensure the frame variable is not accidentally being read by a client while we are trying to update it.
                 success, cap_frame = cap.read()  # read the camera frame
                 if not success:
@@ -163,16 +149,17 @@ def return_frame(anonymize=True, device='cpu', min_area=2000, thresh_val=25, yol
                 total_fps += 1 / (end_time - fps_start_time)
                 frame_count += 1
 
-                time.sleep((1 / fps) - ((time.monotonic() - starttime) % (1 / fps)))
+                time.sleep((1 / fps) - ((time.monotonic() - start_time) % (1 / fps)))
 
             yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + bytearray(
                 encodedImage) + b'\r\n')  # yield some text and the output frame in the byte format
-        except KeyboardInterrupt:
-            pass
-    cap.release()
-    curr_time = datetime.now().strftime("%Y-%m-%d %H-%M-%S")
-    df.to_csv(f"output_videos/{curr_time}.csv", index=False)
-    print(f"Average FPS: {total_fps / frame_count:.3f}")
+
+    except KeyboardInterrupt:
+        out.release()
+        cap.release()
+        curr_time = datetime.now().strftime("%Y-%m-%d %H-%M-%S")
+        df.to_csv(f"output_videos/{curr_time}.csv", index=False)
+        print(f"Average FPS: {total_fps / frame_count:.3f}")
 
 
 def update_df(bed_occupied, date_time, df, is_motion, num_detections, frame_count, fps):
@@ -217,7 +204,7 @@ def run_background_sub(background_grey, curr_grey_frame, prev_grey_frame, static
     frame_delta = cv2.absdiff(background_grey, curr_grey_frame)
     prev_delta = cv2.absdiff(prev_grey_frame, curr_grey_frame)
 
-    # pixels are either 0 or 255.
+    # pixels are between 0 and 255.
     thresh = cv2.threshold(frame_delta, opt.thresh_val, 255, cv2.THRESH_BINARY)[1]
     prev_thresh = cv2.threshold(prev_delta, opt.thresh_val, 255, cv2.THRESH_BINARY)[1]
 
@@ -285,15 +272,21 @@ def yolo_output_plotter(background, names, output_data):
     return processed_frame
 
 
-"""
-Function to use the flask function Response
-"""
 @app.route("/video_feed")
 def video_feed():
-    return Response(return_frame(),
-                    mimetype="multipart/x-mixed-replace; boundary=frame")  # MIME type a.k.a. media type: indicates the nature and format of a document, file, or assortment of bytes. MIME types are defined and standardized in IETF's RFC6838.
+    """
+    Function to use the flask function Response. MIME type a.k.a. media type: indicates the nature and format of a
+    document, file, or assortment of bytes. MIME types are defined and standardized in IETF's RFC6838.
+        """
+    return Response(return_frame(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
 
+@app.route("/")  # Decorator that routes you to a specific URL: in this case just /.
+def index():
+    """
+    Function to render the index.html template and serve up the output video stream
+    """
+    return render_template("index.html")
 
 
 def parse_opt():
@@ -313,11 +306,6 @@ def parse_opt():
     return opt
 
 
-# main function
-def main(options):
-    return_frame(**vars(options))
-
-
 if __name__ == '__main__':
     opt = parse_opt()
     strip_optimizer(opt.device)
@@ -329,9 +317,6 @@ if __name__ == '__main__':
     t.join()
 
     # start the flask app
-    app.run(host='10.42.0.1', port=opt.port, debug=True, threaded=True,
-            use_reloader=False)  # Find the IP address of the Jetson device manually, then replace host=... with that ip address
+    app.run(host='10.42.0.1', port=opt.port, debug=True, threaded=True, se_reloader=False)
+    # Find the IP address of the Jetson device manually, then replace host=... with that ip address
     # to find the ip address, use the ifconfig command. Under wlan, the ip address is listed after the "inet" field.
-
-cap.release()
-print("End of script.")
