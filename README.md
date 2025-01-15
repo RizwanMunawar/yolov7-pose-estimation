@@ -1,15 +1,13 @@
-# 🚀yolov7-pose-estimation
+# yolov7-pose-estimation
 
-### 🎉 New Features
-- 📊 Added Comparison Graph for FPS & Time
-- 💻 How to Run Code in Google Colab
-- 🖥️ Supports CPU & GPU
-- 🎥 Video/WebCam/External Camera/IP Stream Support
+### New Features
+- Added Comparison Graph for FPS & Time
+- How to Run Code in Google Colab
+- Supports CPU & GPU
+- Video/WebCam/External Camera/IP Stream Support
 
-### 🔜 Coming Soon
-- 📈 Streamlit Dashboard for Pose-Estimation
+### Steps to Run Code
 
-### 🚀 Steps to Run Code
 - **Google Colab Users**: First, mount the drive:
   ```python
   from google.colab import drive
@@ -57,14 +55,14 @@
 
 - Output: The processed video will be saved as **your-file-keypoint.mp4**
 
-### 📊 RESULTS
+### RESULTS
 
 <table>
   <tr>
-    <td>⚽ Football Match</td>
-    <td>🏏 Cricket Match</td>
-    <td>📈 FPS & Time Comparison</td>
-    <td>📡 Live Stream</td>
+    <td>Football Match</td>
+    <td>Cricket Match</td>
+    <td> FPS & Time Comparison</td>
+    <td>Live Stream</td>
   </tr>
   <tr>
     <td><img src="https://user-images.githubusercontent.com/62513924/185089411-3f9ae391-ec23-4ca2-aba0-abf3c9991050.png" width=300></td>
@@ -74,7 +72,7 @@
   </tr>
 </table>
 
-### 🔗 References
+### References
 - YOLOv7 Repo: https://github.com/WongKinYiu/yolov7
 - Ultralytics: https://github.com/ultralytics/yolov5
 
