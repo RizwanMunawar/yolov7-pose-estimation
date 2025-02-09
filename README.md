@@ -1,11 +1,5 @@
 # yolov7-pose-estimation
 
-### New Features
-- Added Comparison Graph for FPS & Time
-- How to Run Code in Google Colab
-- Supports CPU & GPU
-- Video/WebCam/External Camera/IP Stream Support
-
 ### Steps to Run Code
 
 - **Google Colab Users**: First, mount the drive:
